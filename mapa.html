@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerador de Mapa Conceitual</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Fira+Code:wght@400&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- Barra de Navegação --- */
+        header {
+            background-color: #1e1e1e;
+            border-bottom: 1px solid #333;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 50px;
+            flex-shrink: 0;
+        }
+
+        h1 {
+            font-size: 18px;
+            margin: 0;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: 1px solid #444;
+            color: #aaa;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            background: #00BFFF;
+            color: #002633;
+            border-color: #00BFFF;
+            font-weight: 600;
+        }
+
+        .tab-btn:hover:not(.active) {
+            background: #333;
+            color: #fff;
+        }
+
+        /* --- Áreas de Conteúdo --- */
+        .view-container {
+            flex-grow: 1;
+            position: relative;
+            overflow: hidden;
+            display: none;
+        }
+
+        .view-container.active {
+            display: block;
+        }
+
+        /* --- Estilos do Editor --- */
+        #editor-view {
+            display: none;
+            flex-direction: column;
+            padding: 20px;
+            box-sizing: border-box;
+            background-color: #0d0d0d;
+        }
+        
+        #editor-view.active {
+            display: flex;
+        }
+
+        .editor-controls {
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .action-btn {
+            background: #2ecc71;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .action-btn:hover {
+            background: #27ae60;
+        }
+
+        textarea#json-input {
+            flex-grow: 1;
+            background-color: #1e1e1e;
+            color: #aaddff;
+            font-family: 'Fira Code', monospace;
+            font-size: 14px;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 15px;
+            resize: none;
+            outline: none;
+            line-height: 1.5;
+        }
+
+        textarea#json-input:focus {
+            border-color: #555;
+        }
+
+        .error-msg {
+            color: #ff6b6b;
+            font-size: 13px;
+            margin-top: 10px;
+            font-family: 'Fira Code', monospace;
+            display: none;
+        }
+
+        /* --- Estilos do Mapa (D3) --- */
+        #mindmap-container {
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+        }
+
+        #mindmap-container:active {
+            cursor: grabbing;
+        }
+
+        .node circle {
+            fill: #1e1e1e;
+            stroke-width: 2px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .node circle:hover {
+            stroke: #fff;
+            stroke-width: 3px;
+            filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.5));
+        }
+
+        .node text {
+            font-size: 14px;
+            font-weight: 400;
+            fill: #e0e0e0;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+            pointer-events: none;
+        }
+
+        .link {
+            fill: none;
+            stroke: #444;
+            stroke-width: 1.5px;
+            opacity: 0.6;
+        }
+
+        /* Cores por Nível */
+        .level-0 circle { stroke: #FFD700; fill: #332b00; }
+        .level-1 circle { stroke: #00BFFF; fill: #002633; }
+        .level-2 circle { stroke: #FF69B4; fill: #330d20; }
+        .level-3 circle { stroke: #7FFF00; fill: #152b00; }
+
+        .map-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(30, 30, 30, 0.9);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            display: flex;
+            gap: 10px;
+            z-index: 100;
+        }
+
+        .ctrl-btn {
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .ctrl-btn:hover { background: #555; }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Gerador de Mapa Mental</h1>
+        <div class="tabs">
+            <button class="tab-btn" id="btn-tab-editor" onclick="switchTab('editor')">Editor JSON</button>
+            <button class="tab-btn active" id="btn-tab-map" onclick="switchTab('map')">Visualizar Mapa</button>
+        </div>
+    </header>
+
+    <!-- TELA 1: EDITOR DE JSON -->
+    <div id="editor-view" class="view-container">
+        <div class="editor-controls">
+            <button class="action-btn" onclick="generateMap()">
+                <span>▶ Gerar Mapa</span>
+            </button>
+        </div>
+        <textarea id="json-input" spellcheck="false" placeholder="Cole seu JSON aqui..."></textarea>
+        <div id="error-display" class="error-msg"></div>
+    </div>
+
+    <!-- TELA 2: MAPA VISUAL -->
+    <div id="map-view" class="view-container active">
+        <div id="mindmap-container"></div>
+        
+        <div class="map-controls">
+            <button class="ctrl-btn" onclick="expandAll()">Expandir Tudo</button>
+            <button class="ctrl-btn" onclick="collapseAll()">Recolher Tudo</button>
+            <button class="ctrl-btn" onclick="centerMap()">Centralizar</button>
+        </div>
+    </div>
+
+    <script>
+        // --- DADOS PADRÃO ---
+        const defaultData = {
+            "name": "Direitos e Garantias Fundamentais (Art. 5º)",
+            "children": [
+                {
+                "name": "Disposições Gerais",
+                "children": [
+                    { "name": "Destinatários: Brasileiros e estrangeiros no país" },
+                    { "name": "Titularidade: Pessoas físicas, jurídicas e Estado" },
+                    { "name": "Direitos Básicos: Vida, liberdade, igualdade, segurança, propriedade" }
+                ]
+                },
+                {
+                "name": "Privacidade e Inviolabilidades",
+                "children": [
+                    {
+                    "name": "Domicílio",
+                    "children": [
+                        { "name": "Conceito: Casa, hotéis, escritórios" },
+                        { "name": "Entrada Dia: Ordem judicial (05h às 21h)" },
+                        { "name": "Entrada Qualquer Hora: Flagrante, desastre, socorro" }
+                    ]
+                    },
+                    {
+                    "name": "Sigilos",
+                    "children": [
+                        { "name": "Bancário/Fiscal: Judiciário e CPIs podem quebrar" },
+                        { "name": "Comunicações: Interceptação exige ordem judicial criminal" }
+                    ]
+                    }
+                ]
+                }
+            ]
+        };
+
+        // --- VARIÁVEIS GLOBAIS D3 ---
+        let svgSelection, g, treeMap, root, zoomBehavior;
+        let i = 0;
+        const duration = 750;
+        let width, height;
+
+        // --- INICIALIZAÇÃO ---
+        window.onload = function() {
+            // Carrega o JSON padrão no textarea
+            const editor = document.getElementById('json-input');
+            editor.value = JSON.stringify(defaultData, null, 2);
+            
+            // Renderiza o mapa inicial
+            initD3();
+            drawMap(defaultData);
+        };
+
+        // --- CONTROLE DE ABAS ---
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.view-container').forEach(v => v.classList.remove('active'));
+
+            if (tabName === 'editor') {
+                document.getElementById('btn-tab-editor').classList.add('active');
+                document.getElementById('editor-view').classList.add('active');
+            } else {
+                document.getElementById('btn-tab-map').classList.add('active');
+                document.getElementById('map-view').classList.add('active');
+                // Não chamamos generateMap aqui automaticamente para evitar loop se houver erro
+            }
+        }
+
+        // --- LÓGICA DO EDITOR ---
+        function generateMap() {
+            const rawJson = document.getElementById('json-input').value;
+            const errorDisplay = document.getElementById('error-display');
+            
+            try {
+                const data = JSON.parse(rawJson);
+                errorDisplay.style.display = 'none';
+                
+                // Força a limpeza total do SVG antes de desenhar o novo
+                // Isso evita o travamento causado por transições complexas entre dados diferentes
+                d3.select("#mindmap-container svg").remove();
+                
+                switchTab('map');
+                
+                // Reinicia o ambiente D3 e desenha do zero
+                initD3();
+                drawMap(data);
+                
+            } catch (e) {
+                errorDisplay.textContent = "Erro no JSON: " + e.message;
+                errorDisplay.style.display = 'block';
+                if(document.getElementById('map-view').classList.contains('active')) {
+                     document.getElementById('btn-tab-editor').click();
+                }
+            }
+        }
+
+        // --- LÓGICA D3.JS ---
+
+        function initD3() {
+            const container = document.getElementById("mindmap-container");
+            width = container.clientWidth;
+            height = container.clientHeight;
+
+            // Remove qualquer SVG existente (garantia extra)
+            d3.select("#mindmap-container").selectAll("*").remove();
+
+            zoomBehavior = d3.zoom().on("zoom", (event) => {
+                g.attr("transform", event.transform);
+            });
+
+            svgSelection = d3.select("#mindmap-container").append("svg")
+                .attr("width", width)
+                .attr("height", height)
+                .call(zoomBehavior)
+                .on("dblclick.zoom", null);
+
+            g = svgSelection.append("g");
+            treeMap = d3.tree().nodeSize([40, 300]);
+        }
+
+        function drawMap(data) {
+            i = 0;
+            root = d3.hierarchy(data, d => d.children);
+            root.x0 = height / 2;
+            root.y0 = 0;
+
+            update(root);
+            centerMap();
+        }
+
+        function update(source) {
+            const treeData = treeMap(root);
+            const nodes = treeData.descendants();
+            const links = treeData.links();
+
+            nodes.forEach(d => { d.y = d.depth * 280; });
+
+            // --- NÓS ---
+            const node = g.selectAll('g.node')
+                .data(nodes, d => d.id || (d.id = ++i));
+
+            const nodeEnter = node.enter().append('g')
+                .attr('class', d => `node level-${Math.min(d.depth, 3)}`)
+                .attr("transform", d => `translate(${source.y0},${source.x0})`)
+                .on('click', click);
+
+            nodeEnter.append('circle')
+                .attr('class', 'node')
+                .attr('r', 1e-6)
+                .style("fill", d => d._children ? "#e0e0e0" : "");
+
+            nodeEnter.append('text')
+                .attr("dy", ".35em")
+                .attr("x", d => d.children || d._children ? -15 : 15)
+                .attr("text-anchor", d => d.children || d._children ? "end" : "start")
+                .text(d => d.data.name)
+                .style('fill-opacity', 1e-6)
+                .each(function(d) {
+                    // Otimização: Só chama wrap se o texto for longo
+                    if (d.data.name && d.data.name.length > 30) {
+                        wrap(d3.select(this), 250);
+                    }
+                });
+
+            const nodeUpdate = nodeEnter.merge(node);
+
+            nodeUpdate.transition().duration(duration)
+                .attr("transform", d => `translate(${d.y},${d.x})`);
+
+            nodeUpdate.select('circle')
+                .attr('r', 8)
+                .style("fill", d => d._children ? "#fff" : "");
+
+            nodeUpdate.select('text')
+                .style('fill-opacity', 1);
+
+            const nodeExit = node.exit().transition().duration(duration)
+                .attr("transform", d => `translate(${source.y},${source.x})`)
+                .remove();
+            
+            nodeExit.select('circle').attr('r', 1e-6);
+            nodeExit.select('text').style('fill-opacity', 1e-6);
+
+            // --- LINKS ---
+            const link = g.selectAll('path.link')
+                .data(links, d => d.target.id);
+
+            const linkEnter = link.enter().insert('path', "g")
+                .attr("class", "link")
+                .attr('d', d => {
+                    const o = {x: source.x0, y: source.y0};
+                    return diagonal(o, o);
+                });
+
+            const linkUpdate = linkEnter.merge(link);
+
+            linkUpdate.transition().duration(duration)
+                .attr('d', d => diagonal(d.source, d.target));
+
+            link.exit().transition().duration(duration)
+                .attr('d', d => {
+                    const o = {x: source.x, y: source.y};
+                    return diagonal(o, o);
+                })
+                .remove();
+
+            nodes.forEach(d => {
+                d.x0 = d.x;
+                d.y0 = d.y;
+            });
+        }
+
+        function diagonal(s, d) {
+            return `M ${s.y} ${s.x}
+                    C ${(s.y + d.y) / 2} ${s.x},
+                      ${(s.y + d.y) / 2} ${d.x},
+                      ${d.y} ${d.x}`;
+        }
+
+        function click(event, d) {
+            if (d.children) {
+                d._children = d.children;
+                d.children = null;
+            } else {
+                d.children = d._children;
+                d._children = null;
+            }
+            update(d);
+            centerOnNode(d);
+        }
+
+        function centerOnNode(d) {
+            if (!svgSelection) return;
+            const currentTransform = d3.zoomTransform(svgSelection.node());
+            const scale = currentTransform.k;
+            let targetY = (height / 2) - (d.x * scale);
+            let targetX = (width * 0.4) - (d.y * scale);
+
+            svgSelection.transition()
+                .duration(750)
+                .call(zoomBehavior.transform, d3.zoomIdentity.translate(targetX, targetY).scale(scale));
+        }
+
+        function centerMap() {
+            if(!svgSelection) return;
+            const t = d3.zoomIdentity.translate(100, height / 2).scale(0.8);
+            svgSelection.transition().duration(750).call(zoomBehavior.transform, t);
+        }
+
+        function collapse(d) {
+            if (d.children) {
+                d._children = d.children;
+                d._children.forEach(collapse);
+                d.children = null;
+            }
+        }
+
+        function collapseAll() {
+            if(!root) return;
+            root.children.forEach(collapse);
+            update(root);
+            centerMap();
+        }
+
+        function expand(d) {
+            var children = (d.children) ? d.children : d._children;
+            if (d._children) {
+                d.children = d._children;
+                d._children = null;
+            }
+            if (children) children.forEach(expand);
+        }
+
+        function expandAll() {
+            if(!root) return;
+            expand(root);
+            update(root);
+        }
+
+        function wrap(text, width) {
+            text.each(function () {
+                var text = d3.select(this),
+                    words = text.text().split(/\s+/).reverse(),
+                    word,
+                    line = [],
+                    lineNumber = 0,
+                    lineHeight = 1.1,
+                    x = text.attr("x"),
+                    y = text.attr("y"),
+                    dy = parseFloat(text.attr("dy")),
+                    tspan = text.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", dy + "em");
+                
+                // Segurança: Limita o número de loops para evitar travamentos em casos extremos
+                let loopCount = 0;
+                while (word = words.pop()) {
+                    loopCount++;
+                    if(loopCount > 1000) break; // Proteção contra loop infinito
+
+                    line.push(word);
+                    tspan.text(line.join(" "));
+                    if (tspan.node().getComputedTextLength() > width) {
+                        line.pop();
+                        tspan.text(line.join(" "));
+                        line = [word];
+                        tspan = text.append("tspan").attr("x", x).attr("y", y).attr("dy", ++lineNumber * lineHeight + dy + "em").text(word);
+                    }
+                }
+            });
+        }
+
+        window.addEventListener('resize', () => {
+            const container = document.getElementById("mindmap-container");
+            if(container) {
+                width = container.clientWidth;
+                height = container.clientHeight;
+                if(svgSelection) {
+                    svgSelection.attr("width", width).attr("height", height);
+                }
+            }
+        });
+
+    </script>
+</body>
+</html>
