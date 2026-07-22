@@ -7,6 +7,10 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
 
+    <script src="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.js"></script>
+    <script src="https://unpkg.com/pdfjs-dist@3.4.120/web/pdf_viewer.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/pdfjs-dist@3.4.120/web/pdf_viewer.css">
+
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
         
@@ -20,6 +24,12 @@
         .custom-scroll::-webkit-scrollbar { width: 6px; }
         .custom-scroll::-webkit-scrollbar-track { background: transparent; }
         .custom-scroll::-webkit-scrollbar-thumb { background-color: rgba(0,0,0,0.1); border-radius: 20px; }
+        
+        /* Scrollbar horizontal para a toolbar responsiva */
+        .custom-scroll-header::-webkit-scrollbar { height: 3px; }
+        .custom-scroll-header::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll-header::-webkit-scrollbar-thumb { background-color: rgba(0,0,0,0.08); border-radius: 10px; }
+        .custom-scroll-header { -ms-overflow-style: none; scrollbar-width: thin; }
         
         /* Animações */
         @keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }

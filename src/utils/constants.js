@@ -19,11 +19,33 @@ export const DEFAULT_THEME = {
     headerBg: '#ffffff' 
 };
 
+export const GOOGLE_DRIVE_API_KEY = "AIzaSyA7KSKkCsGcyu7M_6O57lKVMvpUQ53GKJc";
+
 export const THEME_KEY_PREFIX = 'flashcardFlowTheme_v1_';
 export const TIME_STATS_KEY = 'flashcardFlow_TimeStats_v1';
 
 export const getStorageKey = (u) => `flashcardFlowData_v13_${u ? u.uid : 'guest'}`;
 export const getThemeKey = (u) => `${THEME_KEY_PREFIX}${u ? u.uid : 'guest'}`;
+
+// --- PERFIS LOCAIS (sem senha) ---
+export const PROFILES_KEY = 'flashcardFlow_profiles_v1';
+export const ACTIVE_PROFILE_KEY = 'flashcardFlow_activeProfile_v1';
+export const MAX_LOCAL_PROFILES = 3;
+
+// Retorna o "namespace" usado para isolar dados no IndexedDB/localStorage.
+// Se houver um perfil local ativo, usa o id do perfil; senão usa o usuário da nuvem
+// ou 'guest' (comportamento anterior).
+export const getNamespace = (user, isGuest, activeProfileId) => {
+    if (activeProfileId) return `profile_${activeProfileId}`;
+    if (user && !isGuest) return `user_${user.uid}`;
+    return 'guest';
+};
+
+// Gera a chave de storage considerando o perfil local ativo
+export const getStorageKeyForProfile = (user, isGuest, activeProfileId) =>
+    `flashcardFlowData_v13_${getNamespace(user, isGuest, activeProfileId)}`;
+export const getThemeKeyForProfile = (user, isGuest, activeProfileId) =>
+    `${THEME_KEY_PREFIX}${getNamespace(user, isGuest, activeProfileId)}`;
 
 export const DEFAULT_EDITAL_JSON = JSON.stringify({
   "id": "edital_exemplo",
@@ -47,15 +69,15 @@ export const DEFAULT_EDITAL_JSON = JSON.stringify({
 
 export const safeLocalStorage = {
     getItem: (key) => {
-        try { return localStorage.getItem(key); } catch (e) { console.warn("Storage bloqueado"); return null; }
+        try { return localStorage.getItem(key); } catch { return null; }
     },
     setItem: (key, value) => {
-        try { localStorage.setItem(key, value); } catch (e) { console.warn("Storage bloqueado"); }
+        try { localStorage.setItem(key, value); } catch { /* bloqueado */ }
     },
     removeItem: (key) => {
-        try { localStorage.removeItem(key); } catch (e) { console.warn("Storage bloqueado"); }
+        try { localStorage.removeItem(key); } catch { /* bloqueado */ }
     },
     clear: () => {
-        try { localStorage.clear(); } catch (e) { console.warn("Storage bloqueado"); }
+        try { localStorage.clear(); } catch { /* bloqueado */ }
     }
 };

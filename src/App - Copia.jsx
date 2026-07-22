@@ -4,28 +4,21 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 // --- UTILS ---
 import { 
     APP_VERSION, FIREBASE_CONFIG_FIXED, DEFAULT_THEME, 
-    TIME_STATS_KEY, 
+    TIME_STATS_KEY, getStorageKey, getThemeKey, 
     DEFAULT_EDITAL_JSON, safeLocalStorage, GOOGLE_DRIVE_API_KEY 
 } from './utils/constants';
 
 import { dbHelper } from './utils/dbHelper';
-import { profilesHelper } from './utils/profiles';
-import { 
-    getStorageKeyForProfile, getThemeKeyForProfile, getNamespace 
-} from './utils/constants';
 import { 
     readFileAsText, parseCSV, sanitizeItems, 
-    copyItemRecursively 
+    calculateEditalProgress, copyItemRecursively 
 } from './utils/formatHelpers';
-import { 
-    getOS, getBrowser, getScreenResolution, getItemCounts, fetchGeoInfo 
-} from './utils/browserInfo';
 
 // --- FIREBASE (Importações Diretas) ---
 import { 
     auth, db, 
     onAuthStateChanged, signOut,
-    doc, setDoc, getDoc, collection, writeBatch, deleteField,
+    doc, setDoc, getDoc, collection, writeBatch, getDocs, deleteField,
     onSnapshot // <--- ADICIONE ISSO AQUI
 } from './utils/firebase';
 
@@ -33,7 +26,6 @@ import {
 import Icon from './components/ui/Icon';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import AuthScreen from './components/auth/AuthScreen';
-import ProfileSelector from './components/auth/ProfileSelector';
 
 // --- MODAIS ---
 import SettingsModal from './components/modals/SettingsModal';
@@ -60,83 +52,10 @@ const App = () => {
     const [user, setUser] = useState(null);
     const [isGuest, setIsGuest] = useState(false);
     const [connectionLog, setConnectionLog] = useState(null);
-
-    // Perfil local ativo (null = sem perfil local / usa nuvem ou guest)
-    // Se o ID salvo não corresponde a um perfil existente, limpa
-    const [activeProfileId, setActiveProfileId] = useState(() => {
-        const saved = profilesHelper.getActiveProfileId();
-        if (saved) {
-            const profiles = profilesHelper.getProfiles();
-            if (!profiles.find(p => p.id === saved)) return null;
-        }
-        return saved;
-    });
-    const namespace = getNamespace(user, isGuest, activeProfileId);
-    const storageKey = getStorageKeyForProfile(user, isGuest, activeProfileId);
-    const themeKey = getThemeKeyForProfile(user, isGuest, activeProfileId);
-
-    // Ao selecionar um perfil local, define o activeProfileId e recarrega os dados
-    const selectLocalProfile = (id) => {
-        profilesHelper.setActiveProfileId(id);
-        setActiveProfileId(id);
-        setIsGuest(false);
-        setUser(null);
-        setItems([]);
-        setAppReady(false);
-        setTimeout(() => setAppReady(true), 0);
-    };
-
-    // Sair do perfil local e ir para login na nuvem (NÃO limpa dados locais)
-    const goToCloudLogin = () => {
-        profilesHelper.clearActiveProfile();
-        setActiveProfileId(null);
-        setUser(null);
-        setIsGuest(false);
-        // NÃO limpa items — só muda o contexto visual
-        // Os dados dos perfis locais continuam intactos no IndexedDB
-        setAppReady(true);
-    };
-
-    // Excluir o perfil atual e todos os seus dados
-    const deleteCurrentProfile = (id) => {
-        if (!id) {
-            // Se não tem perfil local, faz o reset limpo de tudo
-            setItems([]);
-            safeLocalStorage.clear();
-            setTheme(DEFAULT_THEME);
-            return;
-        }
-        // Apaga dados do IndexedDB (o namespace do perfil) - CORREÇÃO: usa clearAllItems
-        if (dbHelper && dbHelper.clearAllItems) {
-            const ns = `profile_${id}`;
-            dbHelper.clearAllItems(ns).catch(() => {});
-        }
-        // Remove o perfil da lista
-        profilesHelper.deleteProfile(id);
-        setActiveProfileId(null);
-        setUser(null);
-        setIsGuest(false);
-        setItems([]);
-        // Recarrega para mostrar ProfileSelector
-        setAppReady(false);
-        setTimeout(() => setAppReady(true), 0);
-    };
-
+    
+    // Dados Principais
     const [items, setItems] = useState([]);
     const [theme, setTheme] = useState(DEFAULT_THEME);
-
-    const [storageEstimate, setStorageEstimate] = useState({ usage: 0, quota: 0 });
-
-    useEffect(() => {
-        if (navigator.storage && navigator.storage.estimate) {
-            navigator.storage.estimate().then(estimate => {
-                setStorageEstimate({
-                    usage: estimate.usage || 0,
-                    quota: estimate.quota || 0
-                });
-            }).catch(err => console.error(err));
-        }
-    }, [items, theme]);
     
     // Navegação e Seleção
     const [currentFolderId, setCurrentFolderId] = useState(null);
@@ -159,179 +78,16 @@ const App = () => {
     const [showMultiDeckCreator, setShowMultiDeckCreator] = useState(false);
     const [pickerCurrentPath, setPickerCurrentPath] = useState(null);
 
-    // Backups automáticos
-    const [backups, setBackups] = useState([]);
-
-    // Identificador único da sessão (para evitar recriar backup no F5)
-    const sessionId = useRef(sessionStorage.getItem('backup_session_id') || Date.now().toString());
-    sessionStorage.setItem('backup_session_id', sessionId.current);
-
-    // Sempre que o namespace mudar (troca de perfil), limpa os backups locais e recarrega
-    useEffect(() => {
-        setBackups([]);
-        if (!appReady) return;
-        if (!activeProfileId && !user && !isGuest) return;
-        dbHelper.loadAutoBackups(namespace).then(setBackups);
-    }, [namespace, appReady, activeProfileId, user, isGuest]);
-
-    // Carrega backups e decide se cria backup automático
-    useEffect(() => {
-        if (!appReady) return;
-        if (!activeProfileId && !user && !isGuest) return;
-        if (items.length === 0) return;
-
-        // Verifica se já criou backup nesta sessão+namespace
-        const backupKey = `${sessionId.current}_${namespace}`;
-        if (localStorage.getItem(backupKey)) return;
-
-        (async () => {
-            const data = await dbHelper.loadAutoBackups(namespace);
-            setBackups(data);
-
-            const now = Date.now();
-            const shouldCreate = data.length === 0 || (now - data[data.length - 1].createdAt) > 24 * 60 * 60 * 1000;
-            if (!shouldCreate) { localStorage.setItem(backupKey, '1'); return; }
-
-            const backupStr = JSON.stringify({ items, theme });
-            const sizeBytes = new Blob([backupStr]).size;
-            
-            // Identificador do dispositivo
-            let deviceId = 'desconhecido';
-            try {
-                const canvas = document.createElement('canvas');
-                const gl = canvas.getContext('webgl');
-                if (gl) deviceId = gl.getParameter(gl.RENDERER) + ' | ' + gl.getParameter(gl.VENDOR);
-            } catch { deviceId = navigator.platform || 'desconhecido'; }
-
-            // IP público (via fetch)
-            let ip = '';
-            try { const r = await fetch('https://api.ipify.org?format=json'); const d = await r.json(); ip = d.ip; } catch { /* sem IP */ }
-
-            // Nome da conta/perfil
-            let profileName = '';
-            if (activeProfileId) {
-                const profiles = profilesHelper.getProfiles();
-                const p = profiles.find(x => x.id === activeProfileId);
-                if (p) profileName = p.name || activeProfileId;
-            } else if (user) {
-                profileName = user.email || user.uid;
-            } else {
-                profileName = 'Convidado';
-            }
-
-            // NOVOS CAMPOS: informações do navegador + localização
-            const os = getOS();
-            const browser = getBrowser();
-            const resolucao = getScreenResolution();
-            const itemCounts = getItemCounts(items);
-            const geoInfo = await fetchGeoInfo();
-
-            const newBackup = {
-                createdAt: now, sizeBytes, deviceId, ip, profileName,
-                os, browser, resolucao,
-                totalArquivos: itemCounts.total,
-                totalPastas: itemCounts.pastas,
-                cidade: geoInfo.cidade,
-                provedor: geoInfo.provedor,
-                items: JSON.parse(JSON.stringify(items)),
-                theme: JSON.parse(JSON.stringify(theme)),
-                appVersion: APP_VERSION
-            };
-            const updated = [...data, newBackup];
-            if (updated.length > 3) updated.shift();
-            setBackups(updated);
-            dbHelper.saveAutoBackups(updated, namespace);
-            localStorage.setItem(backupKey, '1');
-            showToast('success', 'Backup automático criado!');
-        })();
-    }, [appReady, items, namespace, activeProfileId, user, isGuest, theme]);
-
-    // Restaura um backup específico
-    const handleRestoreBackup = async (backupIndex) => {
-        const backup = backups[backupIndex];
-        if (!backup) return;
-        if (!confirm(`Restaurar backup de ${new Date(backup.createdAt).toLocaleString()}?\n\nIsso substituirá TODOS os dados atuais.`)) return;
-        
-        const restoredItems = sanitizeItems(backup.items || []);
-        setItems(restoredItems);
-        setTheme(backup.theme || DEFAULT_THEME);
-        setCurrentFolderId(null);
-        setActiveDeckId(null);
-        
-        // Persiste no IndexedDB
-        if (dbHelper && dbHelper.saveAllItems) {
-            await dbHelper.saveAllItems(
-                restoredItems.map(i => { const c = { ...i }; delete c._isDirty; return c; }),
-                namespace
-            );
-        }
-        
-        // Se logado, sincroniza com nuvem
-        if (user && !isGuest) {
-            await saveToCloud(restoredItems, backup.theme || theme);
-        }
-        
-        showToast('success', 'Backup restaurado com sucesso!');
-    };
-
-    // Cria um backup manual (forçado, sem verificar intervalo de tempo)
-    const handleCreateManualBackup = async () => {
-        if (items.length === 0) return;
-        const now = Date.now();
-        const backupStr = JSON.stringify({ items, theme });
-        const sizeBytes = new Blob([backupStr]).size;
-        let deviceId = 'desconhecido';
-        try {
-            const canvas = document.createElement('canvas');
-            const gl = canvas.getContext('webgl');
-            if (gl) deviceId = gl.getParameter(gl.RENDERER) + ' | ' + gl.getParameter(gl.VENDOR);
-        } catch { deviceId = navigator.platform || 'desconhecido'; }
-        let ip = '';
-        try { const r = await fetch('https://api.ipify.org?format=json'); const d = await r.json(); ip = d.ip; } catch { /* sem IP */ }
-        let profileName = '';
-        if (activeProfileId) {
-            const profiles = profilesHelper.getProfiles();
-            const p = profiles.find(x => x.id === activeProfileId);
-            if (p) profileName = p.name || activeProfileId;
-        } else if (user) {
-            profileName = user.email || user.uid;
-        } else {
-            profileName = 'Convidado';
-        }
-        // NOVOS CAMPOS: informações do navegador + localização
-        const os = getOS();
-        const browser = getBrowser();
-        const resolucao = getScreenResolution();
-        const itemCounts = getItemCounts(items);
-        const geoInfo = await fetchGeoInfo();
-
-        const newBackup = {
-            createdAt: now, sizeBytes, deviceId, ip, profileName,
-            os, browser, resolucao,
-            totalArquivos: itemCounts.total,
-            totalPastas: itemCounts.pastas,
-            cidade: geoInfo.cidade,
-            provedor: geoInfo.provedor,
-            items: JSON.parse(JSON.stringify(items)),
-            theme: JSON.parse(JSON.stringify(theme)),
-            appVersion: APP_VERSION
-        };
-        const updated = [...backups, newBackup];
-        if (updated.length > 3) updated.shift();
-        setBackups(updated);
-        await dbHelper.saveAutoBackups(updated, namespace);
-        showToast('success', 'Backup manual criado!');
-    };
-
     // Funcionalidades
     const [searchTerm, setSearchTerm] = useState("");
     const [activeFilters, setActiveFilters] = useState([]);
     const [clipboard, setClipboard] = useState(null); 
     const [selectedIds, setSelectedIds] = useState([]); 
     const [isSelectionMode, setIsSelectionMode] = useState(false);
+    const [forceExplorer, setForceExplorer] = useState(false);
     
     // Status e Logs
-    const [_saveStatus, setSaveStatus] = useState('');
+    const [saveStatus, setSaveStatus] = useState('');
     const [lastCloudSave, setLastCloudSave] = useState(null);
     //const [pdfUrl, setPdfUrl] = useState(null);
     //const [pdfMissing, setPdfMissing] = useState(false);
@@ -339,24 +95,9 @@ const App = () => {
     // Refs
     const fileInputRef = useRef(null);
     const importInputRef = useRef(null);
-    
-    // CORREÇÃO Crítico 2+3: Trava para evitar salvamentos concorrentes (loop Firebase + withCloud)
-    const saveInProgressRef = useRef(false);
-    // CORREÇÃO Crítico 8+6: Refs para detecção de mudanças (namespace e conteúdo)
-    const namespaceRef = useRef(namespace);
-    const lastContentRef = useRef({});
-    // Mantém namespaceRef sincronizado com o namespace atual
-    useEffect(() => { namespaceRef.current = namespace; }, [namespace]);
-    // Mantém lastContentRef sincronizado com os conteúdos dos itens
-    useEffect(() => { 
-        items.forEach(item => { lastContentRef.current[item.id] = item.content; });
-    }, [items]);
 
     // --- HELPER: TOAST ---
     const showToast = (type, msg) => { setConnectionLog({ type, msg }); setTimeout(() => setConnectionLog(null), 4000); };
-
-    // --- HELPER: Touch item (updatedAt + dirty) ---
-    const touchItem = (item) => ({ ...item, updatedAt: Date.now(), _isDirty: true });
 
 
     // --- HELPER: Estilos dos Ícones (Igual ao FileExplorer) ---
@@ -404,75 +145,20 @@ const App = () => {
         return () => { window.removeEventListener('mousemove', resize); window.removeEventListener('mouseup', stopResizing); document.body.classList.remove('select-none-important'); document.body.style.cursor = 'default'; };
     }, [isResizing]);
 
-    // Ref para o time tracker ter acesso ao items atual sem ser dependência
-    const itemsRefForTimer = useRef(items);
-    useEffect(() => { itemsRefForTimer.current = items; }, [items]);
-
-    // --- TIME TRACKER (Global + Por Pasta + Preciso) ---
+    // --- TIME TRACKER (Global) ---
     useEffect(() => {
-        const partialRef = { seconds: 0 };
-        const lastTickTimeRef = { time: Date.now() };
-        
-        const tick = () => {
-            if (document.visibilityState !== 'visible') {
-                // Se ficou invisível, reseta o timer para não acumular tempo errado
-                lastTickTimeRef.time = Date.now();
-                return;
+        const interval = setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                const raw = safeLocalStorage.getItem(TIME_STATS_KEY);
+                let stats = raw ? JSON.parse(raw) : { totalMinutes: 0, days: [] };
+                stats.totalMinutes = (stats.totalMinutes || 0) + 1;
+                const today = new Date().toISOString().split('T')[0];
+                if (!stats.days.includes(today)) stats.days.push(today);
+                safeLocalStorage.setItem(TIME_STATS_KEY, JSON.stringify(stats));
             }
-            
-            const now = Date.now();
-            const elapsedMs = now - lastTickTimeRef.time;
-            lastTickTimeRef.time = now;
-            
-            // Só conta se passou pelo menos 1 segundo real (evita picos)
-            if (elapsedMs < 1000) return;
-            
-            // Converte ms para segundos
-            const elapsedSeconds = Math.round(elapsedMs / 1000);
-            
-            partialRef.seconds += elapsedSeconds;
-            if (partialRef.seconds < 60) return;
-            
-            const minutesToAdd = Math.floor(partialRef.seconds / 60);
-            partialRef.seconds = partialRef.seconds % 60;
-            
-            const raw = safeLocalStorage.getItem(TIME_STATS_KEY);
-            let stats = raw ? JSON.parse(raw) : { totalMinutes: 0, days: [], dailyMinutes: {}, folderMinutes: {} };
-            
-            if (!stats.dailyMinutes) stats.dailyMinutes = {};
-            if (!stats.folderMinutes) stats.folderMinutes = {};
-            
-            const today = new Date().toISOString().split('T')[0];
-            
-            stats.totalMinutes = (stats.totalMinutes || 0) + minutesToAdd;
-            if (!stats.days.includes(today)) stats.days.push(today);
-            stats.dailyMinutes[today] = (stats.dailyMinutes[today] || 0) + minutesToAdd;
-            
-            // Minutos por pasta - propaga para ancestrais
-            if (currentFolderId) {
-                const propagateMinutes = (folderId) => {
-                    if (!folderId) return;
-                    if (!stats.folderMinutes[folderId]) {
-                        stats.folderMinutes[folderId] = { totalMinutes: 0, dailyMinutes: {} };
-                    }
-                    stats.folderMinutes[folderId].totalMinutes = (stats.folderMinutes[folderId].totalMinutes || 0) + minutesToAdd;
-                    stats.folderMinutes[folderId].dailyMinutes[today] = (stats.folderMinutes[folderId].dailyMinutes[today] || 0) + minutesToAdd;
-                    
-                    const currentItems = itemsRefForTimer.current;
-                    const parent = currentItems.find(i => i.id === folderId && i.type === 'folder');
-                    if (parent && parent.parentId) {
-                        propagateMinutes(parent.parentId);
-                    }
-                };
-                propagateMinutes(currentFolderId);
-            }
-            
-            safeLocalStorage.setItem(TIME_STATS_KEY, JSON.stringify(stats));
-        };
-        
-        const interval = setInterval(tick, 30000);
+        }, 60000); 
         return () => clearInterval(interval);
-    }, [currentFolderId]);
+    }, []);
 
 // --- LÓGICA DO FIREBASE (EM TEMPO REAL) ---
     useEffect(() => {
@@ -561,12 +247,6 @@ const App = () => {
                 chunk.forEach(item => { 
                     const itemToSave = { ...item }; 
                     delete itemToSave._isDirty; 
-                    // Remove undefined fields to prevent Firestore serialization errors
-                    Object.keys(itemToSave).forEach(key => {
-                        if (itemToSave[key] === undefined) {
-                            delete itemToSave[key];
-                        }
-                    });
                     const itemRef = doc(itemsCollectionRef, String(item.id)); 
                     batch.set(itemRef, itemToSave); 
                 });
@@ -582,17 +262,7 @@ const App = () => {
         } 
     };
 
-    // CORREÇÃO Crítico 2+3: Trava anti-concorrência + verificação de namespace
-    const withCloud = (newItems) => { 
-        setItems(newItems); 
-        // Só salva na nuvem se não houver outro salvamento em andamento
-        if (!saveInProgressRef.current) {
-            saveInProgressRef.current = true;
-            saveToCloud(newItems, theme).finally(() => {
-                saveInProgressRef.current = false;
-            });
-        }
-    };
+    const withCloud = (newItems) => { setItems(newItems); saveToCloud(newItems, theme); };
 
     // Auto-Save Dirty Items
     useEffect(() => {
@@ -605,18 +275,10 @@ const App = () => {
                  dirtyItems.forEach(async (item) => {
                      try {
                         const itemToSave = { ...item }; delete itemToSave._isDirty;
-                        // Remove undefined fields to prevent Firestore serialization errors
-                        Object.keys(itemToSave).forEach(key => {
-                            if (itemToSave[key] === undefined) {
-                                delete itemToSave[key];
-                            }
-                        });
                         const itemRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'backup', 'items', String(item.id));
                         await setDoc(itemRef, itemToSave, { merge: true });
-                     } catch (err) {
-                        console.error("Erro ao salvar item no backup:", err);
-                     }
-                  });
+                     } catch(e) {}
+                 });
              }
             setItems(prev => prev.map(i => i._isDirty ? { ...i, _isDirty: false } : i));
             setSaveStatus('saved_cloud');
@@ -625,86 +287,20 @@ const App = () => {
         return () => clearTimeout(timeoutId);
     }, [items, user, isGuest]);
 
-    // Persistência Local com IndexedDB (para ultrapassar 5MB) + Backup Secundário no localStorage
-    useEffect(() => { 
-        if (!appReady) return; 
-        const t = setTimeout(async () => { 
-            try {
-                // Salvamento Principal no IndexedDB (Suporta GBs de dados sem problemas)
-                // Salva apenas itens modificados (com _isDirty) em vez de regravar tudo
-                if (dbHelper && dbHelper.saveItem) {
-                    const dirtyItems = items.filter(i => i._isDirty);
-                    for (const item of dirtyItems) {
-                        const itemToSave = { ...item };
-                        delete itemToSave._isDirty;
-                        await dbHelper.saveItem(itemToSave, namespace);
-                    }
-                }
-            } catch (err) {
-                console.error("Erro ao salvar itens no IndexedDB:", err);
-            }
-
-            try {
-                // Salvamento Secundário (Fallback de Segurança) no localStorage se couber
-                safeLocalStorage.setItem(storageKey, JSON.stringify(items)); 
-            } catch (err) {
-                // Se der estouro de cota de 5MB, removemos do localStorage para não corromper,
-                // já que o IndexedDB garante o armazenamento de tudo de forma segura.
-                console.warn("Limite de 5MB do localStorage excedido. Usando exclusivamente IndexedDB.", err);
-                try {
-                    safeLocalStorage.removeItem(storageKey);
-                } catch (removeItemError) { console.error(removeItemError); }
-            }
-        }, 1000); 
-        return () => clearTimeout(t); 
-    }, [items, user, appReady, namespace, storageKey]);
-
-    useEffect(() => { 
-        if (!appReady) return; 
-        try {
-            safeLocalStorage.setItem(themeKey, JSON.stringify(theme)); 
-        } catch (e) {
-            console.error("Erro ao salvar tema no localStorage:", e);
-        }
-    }, [theme, user, appReady, themeKey]);
+    // Persistência Local
+    useEffect(() => { if (!appReady) return; const t = setTimeout(() => { const key = getStorageKey(user); safeLocalStorage.setItem(key, JSON.stringify(items)); }, 1000); return () => clearTimeout(t); }, [items, user, appReady]);
+    useEffect(() => { if (!appReady) return; const key = getThemeKey(user); safeLocalStorage.setItem(key, JSON.stringify(theme)); }, [theme, user, appReady]);
     
-    // Carregar dados no Boot: Prioriza IndexedDB (Ilimitado), senão tenta localStorage
-    // Só roda quando tem um contexto válido (perfil local, guest ou user logado)
+    // Carregar Local Storage no Boot
     useEffect(() => { 
-        if (!appReady) return;
-        // Não tenta carregar dados se não tem nenhum contexto definido
-        if (!activeProfileId && !user && !isGuest) return;
-        const loadInitialData = async () => {
-            try { 
-                let loadedItems = [];
-                // 1. Tenta carregar do IndexedDB
-                if (dbHelper && dbHelper.getAllItems) {
-                    loadedItems = await dbHelper.getAllItems(namespace);
-                }
-                
-                // 2. Se não achou nada no IndexedDB, tenta o LocalStorage antigo (Fallback)
-                if (!loadedItems || loadedItems.length === 0) {
-                    const savedItems = safeLocalStorage.getItem(storageKey);
-                    if (savedItems) {
-                        loadedItems = JSON.parse(savedItems);
-                    }
-                }
-
-                setItems(sanitizeItems(loadedItems || []));
-
-                const savedTheme = safeLocalStorage.getItem(themeKey); 
-                if (savedTheme) setTheme(JSON.parse(savedTheme)); 
-                else setTheme(DEFAULT_THEME); 
-                
-                setCurrentFolderId(null); 
-                setActiveDeckId(null); 
-                setCurrentCardIndex(0); 
-            } catch (e) { 
-                console.error("Erro ao carregar dados iniciais:", e); 
-            }
-        };
-        loadInitialData();
-    }, [user, appReady, activeProfileId, namespace, storageKey, themeKey, isGuest]);
+        if (!appReady) return; 
+        const key = getStorageKey(user); const themeKey = getThemeKey(user); 
+        try { 
+            const savedItems = safeLocalStorage.getItem(key); if (savedItems) setItems(sanitizeItems(JSON.parse(savedItems))); else setItems([]); 
+            const savedTheme = safeLocalStorage.getItem(themeKey); if (savedTheme) setTheme(JSON.parse(savedTheme)); else setTheme(DEFAULT_THEME); 
+            setCurrentFolderId(null); setActiveDeckId(null); setCurrentCardIndex(0); 
+        } catch (e) { console.error(e); } 
+    }, [user, appReady]);
 
     // --- SELEÇÃO DO ITEM ATUAL ---
     const currentItem = useMemo(() => items.find(i => i.id === activeDeckId), [items, activeDeckId]);
@@ -811,16 +407,12 @@ const App = () => {
             setItems(prev => { 
                 const newItem = { ...itemOrId, views: (itemOrId.views || 0) + 1 }; 
                 if (prev.find(i => i.id === newItem.id)) return prev; 
-                return [...prev, touchItem(newItem)]; 
+                return [...prev, { ...newItem, _isDirty: true }]; 
             }); 
-            setActiveDeckId(id);
-            // Adiciona à lista de abas se não estiver
-            setTabs(prev => prev.includes(id) ? prev : [...prev, id]);
+            setActiveDeckId(id); 
         } else { 
-            setItems(prev => prev.map(i => i.id === id ? touchItem({ ...i, views: (i.views || 0) + 1 }) : i)); 
-            setActiveDeckId(id);
-            // Adiciona à lista de abas se não estiver
-            setTabs(prev => prev.includes(id) ? prev : [...prev, id]);
+            setItems(prev => prev.map(i => i.id === id ? { ...i, views: (i.views || 0) + 1, _isDirty: true } : i)); 
+            setActiveDeckId(id); 
         }
         setIsFlipped(false);
     };
@@ -881,38 +473,25 @@ const App = () => {
         // Se for pasta, mantém lógica antiga
         if (item.type === 'folder') { setCurrentFolderId(item.id); setSearchTerm(""); return; }
         
-        // Se for link externo, incrementa view (sempre conta como nova visualização) e abre
-        if (item.type === 'external_link') {
-            setItems(p => p.map(i => i.id === item.id ? touchItem({ ...i, views: (i.views || 0) + 1 }) : i));
-            window.open(item.content.startsWith('http') ? item.content : 'https://'+item.content, '_blank');
-            return;
-        }
+        // Se for link externo, mantém lógica
+        if (item.type === 'external_link') { window.open(item.content.startsWith('http') ? item.content : 'https://'+item.content, '_blank'); return; }
 
         // --- LÓGICA DE ABAS (NORMAL) ---
-        // Se o item JÁ está na aba ativa, apenas foca e NÃO incrementa views
-        if (activeDeckId === item.id) {
-            return;
-        }
-        
-        // Se o item está em outra aba (não ativa), foca e NÃO incrementa views
+        // Se o item JÁ está em uma aba, apenas foca nele
         if (tabs.includes(item.id)) {
             setActiveDeckId(item.id);
-            return;
-        }
-        
-        // Só incrementa views quando o item é realmente aberto pela primeira vez
-        setItems(p => p.map(i => i.id === item.id ? touchItem({ ...i, views: (i.views || 0) + 1 }) : i));
-
-        // Se não está em aba:
-        // Opção A: Se não tem nenhuma aba aberta, abre uma nova
-        if (tabs.length === 0) {
-            setTabs([item.id]);
-            setActiveDeckId(item.id);
         } else {
-            // Opção B: "Navegar" na aba atual (Substituir o item ativo pelo novo)
-            // Isso atende ao "abrir na visualização atual"
-            setTabs(prev => prev.map(id => id === activeDeckId ? item.id : id));
-            setActiveDeckId(item.id);
+            // Se não está em aba:
+            // Opção A: Se não tem nenhuma aba aberta, abre uma nova
+            if (tabs.length === 0) {
+                setTabs([item.id]);
+                setActiveDeckId(item.id);
+            } else {
+                // Opção B: "Navegar" na aba atual (Substituir o item ativo pelo novo)
+                // Isso atende ao "abrir na visualização atual"
+                setTabs(prev => prev.map(id => id === activeDeckId ? item.id : id));
+                setActiveDeckId(item.id);
+            }
         }
     };
 
@@ -921,7 +500,7 @@ const App = () => {
         e.stopPropagation();
         
         if (tabs.includes(item.id)) {
-            // Se já existe, só foca e avisa - NÃO incrementa views
+            // Se já existe, só foca e avisa
             setActiveDeckId(item.id);
             showToast('success', 'Arquivo já está aberto.');
             return;
@@ -932,46 +511,19 @@ const App = () => {
             return;
         }
 
-        // Só incrementa views quando é uma nova aba (primeira abertura)
-        setItems(p => p.map(i => i.id === item.id ? touchItem({ ...i, views: (i.views || 0) + 1 }) : i));
-
         // Adiciona nova aba e foca
         setTabs(prev => [...prev, item.id]);
         setActiveDeckId(item.id);
     };
 
     // Criação
-    // --- ALTERAÇÃO 1: Adicionar 'description' nos parâmetros e no objeto ---
-    const createItem = (type, name, content, description = "", extras = {}) => {
-        const now = Date.now();
-        const newItem = { 
-            id: Date.now().toString() + Math.random(), 
-            type, 
-            name, 
-            description, // <--- O CAMPO NOVO ENTRA AQUI
-            parentId: currentFolderId, 
-            content, 
-            views: 0, 
-            createdAt: now,
-            updatedAt: now,
-            ...extras 
-        };
-        
+    const createItem = (type, name, content, extras = {}) => {
+        const newItem = { id: Date.now().toString() + Math.random(), type, name, parentId: currentFolderId, content, views: 0, ...extras };
         if (['deck','note','edital','video','image','gdrive'].includes(type)) openItem(newItem);
         else withCloud([...items, newItem]);
     };
 
-    //const handleCreateFolder = () => { const name = prompt("Nome:"); if(name) createItem('folder', name, null); };
-    
-    // --- ALTERAÇÃO 2: Aceitar argumentos vindos do FileExplorer ---
-    const handleCreateFolder = () => { 
-        const name = prompt("Nome:"); 
-        if (name) { 
-            const descText = prompt("Descrição da Pasta (opcional):") || ""; 
-            // Colocamos o descText no lugar do 'null' (que é o campo content)
-            createItem('folder', name, descText); 
-        } 
-    };
+    const handleCreateFolder = () => { const name = prompt("Nome:"); if(name) createItem('folder', name, null); };
     const handleCreateNote = () => { const name = prompt("Nome:"); if(name) createItem('note', name, ''); };
     const handleCreateVideo = () => { const name = prompt("Nome:"); const url = prompt("URL:"); if(name && url) createItem('video', name, url); };
     const handleCreateImage = () => { const name = prompt("Nome:"); const url = prompt("URL:"); if(name && url) createItem('image', name, url); };
@@ -1022,7 +574,7 @@ const App = () => {
     // 3. Atualizar conteúdo do Mapa
     const updateMapContent = (id, contentObj) => {
         const contentString = JSON.stringify(contentObj, null, 2);
-        setItems(p => p.map(i => i.id === id ? touchItem({ ...i, content: contentString }) : i));
+        setItems(p => p.map(i => i.id === id ? { ...i, content: contentString, _isDirty: true } : i));
     };
 
     // Upload & Import
@@ -1055,91 +607,25 @@ const App = () => {
             return;
         }
 
-        // Escolha: Substituir ou Mesclar
-        const mergeMode = confirm(
-            "Clique OK para MESCLAR (mantém dados locais e adiciona/atualiza itens do backup).\n\n" +
-            "Clique CANCELAR para SUBSTITUIR (substitui todos os dados locais pelo backup)."
-        );
-
-        // Modo MERGE: preserva dados locais, mescla itens do backup
-        if (mergeMode) {
-            const importedItems = sanitizeItems(rawImport);
-            const currentItems = [...items];
-            const mergedMap = new Map();
-
-            // 1. Adiciona todos os itens locais atuais no mapa
-            currentItems.forEach(item => mergedMap.set(item.id, item));
-
-            // 2. Para cada item importado, verifica conflito
-            let replaceCount = 0;
-            let addCount = 0;
-            importedItems.forEach(imported => {
-                const existing = mergedMap.get(imported.id);
-                if (existing) {
-                    // Conflito: mantém o mais recente (baseado em updatedAt)
-                    const impTime = imported.updatedAt || imported.createdAt || 0;
-                    const existTime = existing.updatedAt || existing.createdAt || 0;
-                    if (impTime > existTime) {
-                        // Backup é mais recente → substitui
-                        mergedMap.set(imported.id, { ...imported, _isDirty: true });
-                        replaceCount++;
-                    }
-                    // Se o local for mais recente, mantém o local (não substitui)
-                } else {
-                    // Item novo do backup → adiciona
-                    mergedMap.set(imported.id, { ...imported, _isDirty: true });
-                    addCount++;
-                }
-            });
-
-            const mergedItems = Array.from(mergedMap.values());
-
-            // 3. Restaura tema e timeStats se vieram no backup
+        if (confirm("Isso substituirá todos os seus dados locais. Continuar?")) {
+            // 1. Mantém os IDs originais para preservar a hierarquia de pastas
+            const newItems = sanitizeItems(rawImport);
+            
+            // 2. Restaura o tema e estatísticas de tempo se existirem
             if (data.theme) setTheme(data.theme);
             if (data.timeStats) {
                 safeLocalStorage.setItem(TIME_STATS_KEY, JSON.stringify(data.timeStats));
             }
 
-            // 4. Atualiza estado
-            setItems(mergedItems);
-            setCurrentFolderId(null);
-            setActiveDeckId(null);
-
-            // 5. Força persistência COMPLETA no IndexedDB
-            if (dbHelper && dbHelper.saveAllItems) {
-                await dbHelper.saveAllItems(
-                    mergedItems.map(i => { const c = { ...i }; delete c._isDirty; return c; }),
-                    namespace
-                );
-            }
-
-            showToast('success', `Mesclado: ${addCount} adicionados, ${replaceCount} atualizados.`);
-        } 
-        // Modo SUBSTITUIR: comportamento original, mas corrigindo persistência
-        else {
-            if (!confirm("Isso substituirá TODOS os seus dados locais. Continuar?")) {
-                event.target.value = '';
-                return;
-            }
-            const newItems = sanitizeItems(rawImport).map(item => ({ ...item, _isDirty: true }));
-
-            if (data.theme) setTheme(data.theme);
-            if (data.timeStats) {
-                safeLocalStorage.setItem(TIME_STATS_KEY, JSON.stringify(data.timeStats));
-            }
-
+            // 3. Atualiza o estado local
             setItems(newItems);
-            setCurrentFolderId(null);
+            setCurrentFolderId(null); // Volta para a raiz para evitar erros de navegação
             setActiveDeckId(null);
 
-            // Força persistência COMPLETA no IndexedDB (resolve o bug de itens sumirem)
-            if (dbHelper && dbHelper.saveAllItems) {
-                await dbHelper.saveAllItems(newItems.map(i => { const c = { ...i }; delete c._isDirty; return c; }), namespace);
-            }
-
+            // 4. Sincronização com a Nuvem (Se estiver logado)
             if (user && !isGuest) {
                 showToast('info', 'Sincronizando backup com a nuvem...');
-                await saveToCloud(newItems.map(i => { const c = { ...i }; delete c._isDirty; return c; }), data.theme || theme);
+                await saveToCloud(newItems, data.theme || theme);
                 showToast('success', 'Backup restaurado e salvo na nuvem!');
             } else {
                 showToast('success', 'Backup restaurado localmente!');
@@ -1182,8 +668,8 @@ const App = () => {
             const getIds = (r, l) => { let ids=[r]; l.filter(i=>i.parentId===r).forEach(c=>ids.push(...getIds(c.id, l))); return ids; };
             const todel = getIds(id, items);
             
-            // Deletar PDFs físicos (com await para garantir limpeza)
-            for (const tid of todel) { const it = items.find(x => x.id === tid); if(it && it.type === 'pdf') await dbHelper.deleteFile(tid); }
+            // Deletar PDFs físicos
+            todel.forEach(tid => { const it = items.find(x => x.id === tid); if(it && it.type === 'pdf') dbHelper.deleteFile(tid); });
             
             // Deletar da Nuvem (Firebase)
              if (user && !isGuest) { 
@@ -1204,31 +690,11 @@ const App = () => {
 
             const next = items.filter(i => !todel.includes(i.id));
             withCloud(next);
-            // Forçar salvamento completo no IndexedDB para que o delete persista
-            if (dbHelper && dbHelper.saveAllItems) {
-                dbHelper.saveAllItems(next.map(i => { const c = { ...i }; delete c._isDirty; return c; }), namespace);
-            }
-            // Limpar tabs e activeDeckId se o item excluído estava aberto
-            if (todel.includes(activeDeckId)) {
-                setActiveDeckId(null);
-            }
-            setTabs(prev => prev.filter(tabId => !todel.includes(tabId)));
+            if(todel.includes(activeDeckId)) setActiveDeckId(null);
         }
     };
 
-    const handleRename = (id, newName, newContent) => withCloud(items.map(i => {
-        if (i.id === id) {
-            const updated = touchItem({ ...i, name: newName });
-            const finalContent = newContent !== undefined ? newContent : i.content;
-            if (finalContent !== undefined) {
-                updated.content = finalContent;
-            } else {
-                delete updated.content;
-            }
-            return updated;
-        }
-        return i;
-    }));
+    const handleRename = (id, newName) => withCloud(items.map(i => i.id===id ? {...i, name:newName} : i));
     
     // Clipboard e Seleção
     const handleClipboard = (e, item, mode) => { e && e.stopPropagation(); if (!item) { setClipboard(null); return; } setClipboard({ mode, items: [item.id] }); };
@@ -1266,8 +732,7 @@ const App = () => {
             selectedIds.forEach(id => { allToDelete = [...allToDelete, ...getIds(id, items)]; });
             allToDelete = [...new Set(allToDelete)];
 
-            // Await na exclusão de PDFs em lote
-            for (const tid of allToDelete) { const it = items.find(x => x.id === tid); if(it && it.type === 'pdf') await dbHelper.deleteFile(tid); }
+            allToDelete.forEach(tid => { const it = items.find(x => x.id === tid); if(it && it.type === 'pdf') dbHelper.deleteFile(tid); });
 
             // Deletar da Nuvem
             if (user && !isGuest) {
@@ -1286,140 +751,19 @@ const App = () => {
                 } catch(e) { console.error(e); }
             }
 
-        const next = items.filter(i => !allToDelete.includes(i.id)); 
-        withCloud(next); 
-        // CORREÇÃO: Forçar salvamento completo no IndexedDB para que o batch delete persista
-        if (dbHelper && dbHelper.saveAllItems) {
-            dbHelper.saveAllItems(next.map(i => { const c = { ...i }; delete c._isDirty; return c; }), namespace);
-        }
-        // Limpar tabs se os itens excluídos estavam abertos
-        setTabs(prev => prev.filter(tabId => !allToDelete.includes(tabId)));
-        if (allToDelete.includes(activeDeckId)) {
-            setActiveDeckId(null);
-        }
-        setSelectedIds([]); setIsSelectionMode(false); 
+            const next = items.filter(i => !allToDelete.includes(i.id)); 
+            withCloud(next); 
+            setSelectedIds([]); setIsSelectionMode(false); 
         } 
     };
 
-    // --- HELPER: Recalcula posições de realce quando o texto é editado ---
-    const recalculateHighlights = (oldHighlights, oldText, newText) => {
-        if (!oldHighlights || oldHighlights.length === 0) return oldHighlights;
-        if (oldText === newText) return oldHighlights;
-        
-        const oldLen = oldText.length;
-        const newLen = newText.length;
-        
-        // Encontra o ponto de diferença usando longest common prefix/suffix
-        let prefixLen = 0;
-        while (prefixLen < oldLen && prefixLen < newLen && oldText[prefixLen] === newText[prefixLen]) {
-            prefixLen++;
-        }
-        
-        let suffixLenOld = oldLen - 1;
-        let suffixLenNew = newLen - 1;
-        while (suffixLenOld >= prefixLen && suffixLenNew >= prefixLen && oldText[suffixLenOld] === newText[suffixLenNew]) {
-            suffixLenOld--;
-            suffixLenNew--;
-        }
-        const oldSuffixStart = suffixLenOld + 1;
-        const newSuffixStart = suffixLenNew + 1;
-        
-        // Região de mudança no texto antigo: [prefixLen, oldSuffixStart)
-        // Região de mudança no texto novo: [prefixLen, newSuffixStart)
-        const oldChangedLen = oldSuffixStart - prefixLen;
-        const newChangedLen = newSuffixStart - prefixLen;
-        
-        // Se não houve mudança (texto igual)
-        if (oldChangedLen === 0 && newChangedLen === 0) return oldHighlights;
-        
-        // Se houve inserção (oldChangedLen = 0, newChangedLen > 0)
-        // Se houve remoção (oldChangedLen > 0, newChangedLen = 0)
-        // Se houve substituição (ambos > 0)
-        const delta = newChangedLen - oldChangedLen;
-        
-        const newHighlights = [];
-        for (const h of oldHighlights) {
-            const start = h.start;
-            const end = h.end;
-            
-            // Caso 1: Realce totalmente ANTES da mudança → deslocamento zero
-            if (end <= prefixLen) {
-                newHighlights.push({ ...h, start, end });
-                continue;
-            }
-            
-            // Caso 2: Realce totalmente DEPOIS da mudança → deslocado pelo delta
-            if (start >= oldSuffixStart) {
-                newHighlights.push({ ...h, start: start + delta, end: end + delta });
-                continue;
-            }
-            
-            // Caso 3: Realce INTERSECTA ou está dentro da região de mudança
-            // Precisamos encontrar o texto do realce no novo texto para reposicionar
-            
-            // Tenta encontrar o texto original no novo texto ao redor da posição esperada
-            const expectedPos = start + delta; // Posição aproximada no novo texto
-            const searchText = h.text;
-            
-            if (!searchText) {
-                // Sem texto de referência, usa posição aproximada
-                const newStart = Math.min(start, prefixLen);
-                newHighlights.push({ ...h, start: newStart, end: newStart + Math.max(1, end - start) });
-                continue;
-            }
-            
-            // Busca o texto original no novo texto
-            const searchStart = Math.max(0, expectedPos - 50);
-            const searchEnd = Math.min(newLen, expectedPos + searchText.length + 50);
-            const searchRegion = newText.slice(searchStart, searchEnd);
-            const foundIndex = searchRegion.indexOf(searchText);
-            
-            if (foundIndex !== -1) {
-                // Encontrou! Atualiza as posições
-                const actualStart = searchStart + foundIndex;
-                newHighlights.push({ ...h, start: actualStart, end: actualStart + searchText.length });
-            } else {
-                // Busca mais ampla em todo o texto
-                const wideSearch = newText.indexOf(searchText);
-                if (wideSearch !== -1) {
-                    newHighlights.push({ ...h, start: wideSearch, end: wideSearch + searchText.length });
-                } else {
-                    // Tenta busca case-insensitive
-                    const lowerSearch = newText.toLowerCase().indexOf(searchText.toLowerCase());
-                    if (lowerSearch !== -1) {
-                        newHighlights.push({ ...h, start: lowerSearch, end: lowerSearch + searchText.length });
-                    } else {
-                        // Não encontrou o texto em lugar nenhum → mantém o realce
-                        // mas atualiza posição aproximada
-                        const newStart = Math.max(0, Math.min(start, prefixLen) + delta);
-                        newHighlights.push({ ...h, start: newStart, end: Math.min(newLen, newStart + Math.max(1, searchText.length)) });
-                    }
-                }
-            }
-        }
-        
-        return newHighlights;
-    };
-    
     // Updates
-    const updateNoteContent = (id, newContent) => setItems(p => p.map(i => {
-        if (i.id !== id) return i;
-        const oldContent = i.content || '';
-        const oldHighlights = i.highlights || [];
-        // Recalcula os realces baseado no diff do texto
-        const recalculatedHighlights = recalculateHighlights(oldHighlights, oldContent, newContent);
-        return touchItem({ ...i, content: newContent, highlights: recalculatedHighlights });
-    }));
+    const updateNoteContent = (id, c) => setItems(p => p.map(i => i.id===id ? {...i, content:c, _isDirty: true} : i));
     //const updateNoteHighlights = (id, h, removeId) => { setItems(p => p.map(i => { if(i.id !== id) return i; let newH = i.highlights || []; if(removeId) newH = newH.filter(x => x.id !== removeId); else if(h) newH = [...newH, { ...h, id: Date.now() }]; return { ...i, highlights: newH, _isDirty: true }; })); };
     // Substitua a função antiga por esta versão corrigida:
-    const updateNoteHighlights = (id, h, removeId, extras) => { 
+    const updateNoteHighlights = (id, h, removeId) => { 
         setItems(p => p.map(i => { 
             if(i.id !== id) return i; 
-            
-            // CASO 4: Atualizar annotations (notas do modo notas)
-            if (extras && extras.annotations !== undefined) {
-                return touchItem({ ...i, annotations: extras.annotations });
-            }
             
             let newH = i.highlights || []; 
             
@@ -1439,8 +783,8 @@ const App = () => {
                 newH = [...newH, itemToAdd]; 
             }
             
-            // Usa touchItem para atualizar updatedAt também
-            return touchItem({ ...i, highlights: newH }); 
+            // Marca como sujo para salvar na nuvem
+            return { ...i, highlights: newH, _isDirty: true }; 
         })); 
     };
 
@@ -1450,7 +794,7 @@ const App = () => {
         try {
             // 1. Atualiza a lista geral (Isso já atualiza o currentItem automaticamente)
             const updatedItems = items.map(item => 
-                item.id === id ? touchItem({ ...item, highlights: newHighlightsArray }) : item
+                item.id === id ? { ...item, highlights: newHighlightsArray, _isDirty: true } : item
             );
             setItems(updatedItems);
 
@@ -1474,49 +818,48 @@ const App = () => {
         }
     };
 
-    const updateEditalContent = (id, c) => setItems(p => p.map(i => i.id===id ? touchItem({...i, content:c}) : i));
-    const updateEditalProgress = (id, discId, path, field, value) => { setItems(prevItems => prevItems.map(item => { if (item.id === id) { const newMap = { ...(item.progressMap || {}) }; if (!newMap[discId]) newMap[discId] = {}; let currentStatus = newMap[discId][path]; if (typeof currentStatus !== 'object' || currentStatus === null) { currentStatus = { lido: !!currentStatus }; } else { currentStatus = { ...currentStatus }; } currentStatus[field] = value; if (field === 'facil' && value) currentStatus.dificil = false; if (field === 'dificil' && value) currentStatus.facil = false; newMap[discId][path] = currentStatus; return touchItem({ ...item, progressMap: newMap }); } return item; })); };
+    const updateEditalContent = (id, c) => setItems(p => p.map(i => i.id===id ? {...i, content:c, _isDirty: true} : i));
+    const updateEditalProgress = (id, discId, path, field, value) => { setItems(prevItems => prevItems.map(item => { if (item.id === id) { const newMap = { ...(item.progressMap || {}) }; if (!newMap[discId]) newMap[discId] = {}; let currentStatus = newMap[discId][path]; if (typeof currentStatus !== 'object' || currentStatus === null) { currentStatus = { lido: !!currentStatus }; } else { currentStatus = { ...currentStatus }; } currentStatus[field] = value; if (field === 'facil' && value) currentStatus.dificil = false; if (field === 'dificil' && value) currentStatus.facil = false; newMap[discId][path] = currentStatus; return { ...item, progressMap: newMap, _isDirty: true }; } return item; })); };
 
     // Flashcard Nav
-    const handleNextCard = () => { if(currentCardIndex < (currentItem.cards?.length || 0) -1){ const n=currentCardIndex+1; setIsFlipped(false); setTimeout(()=>{setCurrentCardIndex(n); setItems(p => p.map(i => i.id===activeDeckId ? touchItem({...i, progress:n}) : i));},150); } else setShowCompletionModal(true); };
-    const handlePrevCard = () => { if(currentCardIndex > 0){ const n=currentCardIndex-1; setIsFlipped(false); setTimeout(()=>{setCurrentCardIndex(n); setItems(p => p.map(i => i.id===activeDeckId ? touchItem({...i, progress:n}) : i));},150); } };
-    const finishDeck = (completed) => { setShowCompletionModal(false); const compl = completed ? (currentItem.completions||0)+1 : (currentItem.completions||0); const nextItems = items.map(i => i.id===activeDeckId ? touchItem({...i, progress:0, completions: compl}) : i); if(completed) saveToCloud(nextItems, theme); setItems(nextItems); setIsFlipped(false); setCurrentCardIndex(0); };
+    const handleNextCard = () => { if(currentCardIndex < (currentItem.cards?.length || 0) -1){ const n=currentCardIndex+1; setIsFlipped(false); setTimeout(()=>{setCurrentCardIndex(n); setItems(p => p.map(i => i.id===activeDeckId ? {...i, progress:n, _isDirty: true} : i));},150); } else setShowCompletionModal(true); };
+    const handlePrevCard = () => { if(currentCardIndex > 0){ const n=currentCardIndex-1; setIsFlipped(false); setTimeout(()=>{setCurrentCardIndex(n); setItems(p => p.map(i => i.id===activeDeckId ? {...i, progress:n, _isDirty: true} : i));},150); } };
+    const finishDeck = (completed) => { setShowCompletionModal(false); const compl = completed ? (currentItem.completions||0)+1 : (currentItem.completions||0); const nextItems = items.map(i => i.id===activeDeckId ? {...i, progress:0, completions: compl} : i); if(completed) saveToCloud(nextItems, theme); setItems(nextItems); setIsFlipped(false); setCurrentCardIndex(0); };
 
-    // Logout — Limpa TUDO, inclusive perfil local, e volta para AuthScreen
-    const handleLogout = () => {
-        profilesHelper.clearActiveProfile();
-        setActiveProfileId(null);
-        setUser(null);
-        setIsGuest(false);
-        setShowStats(false);
-        setItems([]);
-        signOut(auth).catch(()=>{});
-    };
+    // Logout
+    const handleLogout = () => { setUser(null); setIsGuest(false); setShowStats(false); setItems([]); signOut(auth).catch(()=>{}); };
 
     // --- RENDER ---
     if (!appReady) return <div className="min-h-screen flex items-center justify-center text-gray-500 animate-pulse">Carregando...</div>;
+    if (!user && !isGuest) return <AuthScreen onLogin={u => setUser(u)} onGuest={() => setIsGuest(true)} />;
 
-    // PRIORIDADE 1: Tem perfil local ativo → Explorer (essa condição VEM PRIMEIRO)
-    if (activeProfileId) {
-        // Vai pro Explorer
-    }
-    // PRIORIDADE 2: Usuário logado no Firebase → Explorer
-    else if (user) {
-        // Vai pro Explorer
-    }
-    // PRIORIDADE 3: Guest sem perfil → ProfileSelector
-    else if (isGuest) {
+    // Tela Vazia (sem items)
+    if (items.length === 0 && !forceExplorer) {
         return (
-            <ProfileSelector
-                onSelectProfile={selectLocalProfile}
-                onCloudLogin={() => { goToCloudLogin(); }}
-            />
+            <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gray-50 text-center relative">
+                {connectionLog && <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded-lg shadow-lg text-sm font-bold z-50 transition-all ${connectionLog.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{connectionLog.msg}</div>}
+                {user && <div className="absolute top-4 left-4 flex items-center gap-2 text-sm text-gray-600"><span className="w-2 h-2 bg-green-500 rounded-full"></span> {user.email}</div>}
+                <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-gray-100 relative">
+                    <button onClick={() => setShowStats(true)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><Icon name="barChart" size={20} /></button>
+                    <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6 text-blue-600"><Icon name="layers" size={40} /></div>
+                    <h1 className="text-2xl font-bold text-gray-800 mb-2">Flashcard Flow</h1>
+                    <p className="text-gray-500 mb-8">Seu explorador de estudos está vazio.</p>
+                    <div className="space-y-2">
+                        <button onClick={() => setForceExplorer(true)} className="w-full bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-3"><Icon name="folder" size={20} /> <span>Abrir Explorador</span></button>
+                        <button onClick={() => fileInputRef.current.click()} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-3"><Icon name="filePlus" size={24} /> <span>Importar Arquivo (.csv / .txt / .pdf)</span></button>
+                        <button onClick={() => importInputRef.current.click()} className="w-full bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-3"><Icon name="uploadCloud" size={20} /> <span>Importar Backup Local</span></button>
+                    </div>
+                    <input type="file" accept=".csv, .txt, .pdf" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+                    <input type="file" accept=".json" ref={importInputRef} onChange={handleImportData} className="hidden" />
+                    <div className="mt-6 pt-6 border-t">
+                        <button onClick={handleLogout} className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 font-medium rounded-lg text-sm flex items-center justify-center gap-2"><Icon name="logOut" size={16}/> Sair / Login</button>
+                    </div>
+                    {showStats && <StatsModal user={user} items={items} theme={theme} onClose={() => setShowStats(false)} onLogout={handleLogout} onReset={() => setItems([])} />}
+                </div>
+            </div>
         );
     }
-    // PRIORIDADE 4: Sem user, não guest → AuthScreen
-    else {
-        return <AuthScreen onLogin={u => setUser(u)} onGuest={() => setIsGuest(true)} />;
-    }
+
     return (
         <ErrorBoundary>
             <div className="h-screen w-full flex flex-col md:flex-row bg-gray-50 overflow-hidden">
@@ -1554,7 +897,7 @@ const App = () => {
                                             dragItem.current = index;
                                             e.target.classList.add('opacity-50');
                                         }}
-                                        onDragEnter={() => {
+                                        onDragEnter={(e) => {
                                             dragOverItem.current = index;
                                         }}
                                         onDragEnd={(e) => {
@@ -1611,7 +954,7 @@ const App = () => {
                             return (
                                 <div 
                                     key={tabId} 
-                                    className="w-full h-full flex flex-col overflow-y-auto"
+                                    className="w-full h-full flex flex-col p-4 overflow-y-auto"
                                     style={{ display: isActive ? 'flex' : 'none' }}
                                 >
                                     {tabItem.type === 'note' ? (
@@ -1672,7 +1015,7 @@ const App = () => {
                         onOpenNewTab={handleOpenInNewTab}
                         onDelete={handleDelete}
                         onRename={handleRename}
-                        onDownload={(e) => { e.stopPropagation(); }}
+                        onDownload={(e, item) => { e.stopPropagation(); }}
                         onClipboard={handleClipboard}
                         onPaste={handlePaste}
                         clipboard={clipboard}
@@ -1715,13 +1058,7 @@ const App = () => {
                         
                         // UI
                         isGuest={isGuest}
-                        user={user}
-                        onLoginClick={() => {
-                            profilesHelper.clearActiveProfile();
-                            setActiveProfileId(null);
-                            setIsGuest(false);
-                            setUser(null);
-                        }}
+                        onLoginClick={() => { setIsGuest(false); setUser(null); }}
                         onClose={() => setShowQueue(false)}
                         onOpenSettings={() => setShowSettings(true)}
                         onOpenStats={() => setShowStats(true)}
@@ -1732,40 +1069,7 @@ const App = () => {
 
                 {/* --- MODAIS (MANTIDOS IGUAIS) --- */}
                 {showSettings && <SettingsModal theme={theme} setTheme={setTheme} onClose={() => setShowSettings(false)} onSave={() => { setShowSettings(false); setSaveStatus('saved'); }} />}
-                {showStats && (
-                    <StatsModal 
-                        user={user} 
-                        items={items} 
-                        theme={theme} 
-                        lastCloudSave={lastCloudSave} 
-                        isGuest={isGuest}
-                        storageEstimate={storageEstimate}
-                        backups={backups}
-                        onRestoreBackup={handleRestoreBackup}
-                        onCreateManualBackup={handleCreateManualBackup}
-                        onClose={() => setShowStats(false)} 
-                        onLogout={handleLogout} 
-                        onSaveCloud={() => saveToCloud(items, theme)} 
-                        onExport={handleExportData} 
-                        onImport={handleImportData} 
-                        onImportStudyFiles={() => fileInputRef.current.click()}
-                        onReset={() => { 
-                            if (activeProfileId) {
-                                if (confirm(`Excluir conta/perfil "${activeProfileId}" e todos os dados locais?`)) { 
-                                    deleteCurrentProfile(activeProfileId);
-                                    setShowStats(false); 
-                                }
-                            } else {
-                                if(confirm("Apagar tudo?")) { 
-                                    setItems([]); 
-                                    safeLocalStorage.clear(); 
-                                    setTheme(DEFAULT_THEME); 
-                                    setShowStats(false); 
-                                }
-                            }
-                        }} 
-                    />
-                )}
+                {showStats && <StatsModal user={user} items={items} theme={theme} lastCloudSave={lastCloudSave} onClose={() => setShowStats(false)} onLogout={handleLogout} onSaveCloud={() => saveToCloud(items, theme)} onExport={handleExportData} onImport={() => importInputRef.current.click()} onReset={() => { if(confirm("Apagar tudo?")) { setItems([]); safeLocalStorage.clear(); setTheme(DEFAULT_THEME); setShowStats(false); } }} />}
                 {showCompletionModal && <CompletionModal onFinish={finishDeck} />}
                 {showFolderPicker && <FolderPickerModal items={items} currentPath={pickerCurrentPath} setCurrentPath={setPickerCurrentPath} onConfirm={(target) => { createItem('shortcut', target.name, target.id); setShowFolderPicker(false); }} onClose={() => setShowFolderPicker(false)} />}
                 {showMultiDeckCreator && <MultiDeckCreatorModal items={items} currentFolderId={currentFolderId} onCreate={(newItem) => withCloud([...items, newItem])} onClose={() => setShowMultiDeckCreator(false)} showToast={showToast} />}

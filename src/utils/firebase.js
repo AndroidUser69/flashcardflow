@@ -1,7 +1,7 @@
 // src/utils/firebase.js
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, collection, writeBatch, getDocs, deleteField, deleteDoc } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, collection, writeBatch, getDocs, deleteField, deleteDoc, onSnapshot } from "firebase/firestore";
 
 // Configuração copiada do seu projeto
 const firebaseConfig = {
@@ -21,5 +21,5 @@ export const db = getFirestore(app);
 // Exportando funções para os outros arquivos usarem
 export { 
     signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged,
-    doc, setDoc, getDoc, collection, writeBatch, getDocs, deleteField, deleteDoc 
+    doc, setDoc, getDoc, collection, writeBatch, getDocs, deleteField, deleteDoc, onSnapshot
 };

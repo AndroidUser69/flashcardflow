@@ -2,30 +2,6 @@ import React, { useState } from 'react';
 import Icon from '../ui/Icon';
 import { getEmbedUrl, getHostname } from '../../utils/formatHelpers';
 
-export const PDFViewer = ({ currentItem, pdfUrl, pdfMissing, onRestore }) => {
-    // Referência interna para o input de arquivo
-    const restoreRef = React.useRef(null);
-    return (
-        <div className="w-full max-w-5xl flex-1 flex flex-col bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden min-h-0">
-            <div className="bg-gray-50 border-b p-3 flex justify-between items-center shrink-0">
-                <div className="flex items-center gap-2 font-semibold text-gray-700"><Icon name="fileText" size={18} className="text-red-500" />{currentItem.name}</div>
-                <span className="text-xs text-gray-400">PDF Local</span>
-            </div>
-            {pdfUrl ? (
-                // Nota: Assumimos que existe um arquivo PDF LEITOR.html na public folder ou similar, conforme código original.
-                <iframe src={`PDF%20LEITOR.html?id=${currentItem.id}`} className="w-full h-full border-none" title="PDF Viewer"></iframe>
-            ) : pdfMissing ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-500 space-y-4">
-                    <Icon name="fileText" size={48} className="text-gray-300" />
-                    <div><h3 className="font-bold text-gray-700">Arquivo não encontrado</h3><p className="text-xs mt-1">O PDF <b>{currentItem.name}.pdf</b> é local.</p></div>
-                    <button onClick={() => restoreRef.current.click()} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium transition-colors">Localizar PDF</button>
-                    <input ref={restoreRef} type="file" accept=".pdf" onChange={onRestore} className="hidden" />
-                </div>
-            ) : (<div className="flex-1 flex items-center justify-center text-gray-400">Carregando...</div>)}
-        </div>
-    );
-};
-
 export const VideoViewer = ({ currentItem }) => (
     <div className="w-full max-w-5xl flex-1 flex flex-col bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden min-h-0">
         <div className="bg-gray-50 border-b p-3 flex justify-between items-center shrink-0">

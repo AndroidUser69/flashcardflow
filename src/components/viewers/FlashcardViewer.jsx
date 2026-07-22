@@ -12,8 +12,43 @@ const FlashcardViewer = ({
 }) => {
     const currentCard = (currentItem && Array.isArray(currentItem.cards)) ? currentItem.cards[currentCardIndex] : null;
 
+    // Exportar flashcards como CSV
+    const exportCSV = () => {
+        const cards = currentItem?.cards || [];
+        if (cards.length === 0) return;
+        const header = 'front,back';
+        const rows = cards.map(c => {
+            const front = (c.front || '').replace(/"/g, '""');
+            const back = (c.back || '').replace(/"/g, '""');
+            return `"${front}","${back}"`;
+        });
+        const csvContent = header + '\n' + rows.join('\n');
+        const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${currentItem?.name || 'flashcards'}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
     return (
-        <div className="w-full max-w-5xl flex-1 flex flex-col items-center my-auto">
+        <div className="w-full max-w-5xl flex-1 flex flex-col items-center my-auto relative">
+            {/* Botão Exportar CSV */}
+            {currentItem && currentItem.cards && currentItem.cards.length > 0 && (
+                <div className="absolute top-2 right-2 md:top-4 md:right-4 z-10">
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); exportCSV(); }} 
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-lg shadow-sm text-xs font-medium text-gray-600 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 transition-all"
+                        title="Exportar como CSV"
+                    >
+                        <Icon name="download" size={14} /> CSV
+                    </button>
+                </div>
+            )}
+
             <div className="flex items-center justify-center w-full gap-4 md:gap-8">
                 {/* Botão Anterior Desktop */}
                 <button onClick={(e) => { e.stopPropagation(); onPrev(); }} className="hidden md:flex p-4 rounded-full bg-white text-gray-700 hover:text-blue-600 shadow-lg border transition-all active:scale-95">

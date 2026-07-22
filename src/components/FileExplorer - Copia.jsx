@@ -19,6 +19,7 @@ const FileExplorer = ({
     // Props de Ação
     onDelete, 
     onRename, 
+    onDownload, 
     onClipboard, 
     onPaste, 
     clipboard,
@@ -43,11 +44,11 @@ const FileExplorer = ({
     onCreateExternalLink,
     // Props de UI/Navegação adicionais
     isGuest,
-    user,
     onLoginClick,
     onOpenSettings, // NOVO
     onOpenStats,    // NOVO
     // Seleção em lote
+    toggleSelection,
     onBatchDelete,
     onBatchCopy,
     onBatchCut,
@@ -57,10 +58,8 @@ const FileExplorer = ({
     const [showFilterMenu, setShowFilterMenu] = useState(false);
     const [editingItemId, setEditingItemId] = useState(null);
     const [tempName, setTempName] = useState("");
-    const [tempContent, setTempContent] = useState(""); // 👇 NOVA VARIÁVEL PARA A DESCRIÇÃO
     
     const editInputRef = useRef(null);
-
 
     // CORREÇÃO: Usa 'allItems' para contar, senão mostra 0 itens se a pasta não estiver aberta
     const countItemsInFolder = (folderId) => {
@@ -68,15 +67,9 @@ const FileExplorer = ({
         return source.filter(i => i.parentId === folderId).length;
     };
 
-    const handleSaveRename = (e, itemType) => {
+    const handleSaveRename = (e) => {
         e.stopPropagation();
-        if (tempName.trim()) {
-            if (itemType === 'folder') {
-                onRename(editingItemId, tempName, tempContent);
-            } else {
-                onRename(editingItemId, tempName);
-            }
-        }
+        if (tempName.trim()) onRename(editingItemId, tempName);
         setEditingItemId(null);
     };
 
@@ -84,11 +77,8 @@ const FileExplorer = ({
         e.stopPropagation();
         setEditingItemId(item.id);
         setTempName(item.name);
-        setTempContent(item.content || ""); // Puxa a descrição atual se existir
         setTimeout(() => editInputRef.current?.focus(), 50);
     };
-
-    const currentFolder = currentFolderId ? allItems.find(i => i.id === currentFolderId) : null;
 
     return (
         <div className="flex flex-col h-full bg-white md:bg-gray-50 border-r border-gray-200">
@@ -124,38 +114,24 @@ const FileExplorer = ({
                     </div>
                 </div>
 
-                {/* 👇 NOVA PARTE: BARRA DE PESQUISA 👇 */}
-                <div className="relative w-full mb-1">
-                    <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none text-gray-400">
-                        <Icon name="search" size={14} />
-                    </div>
-                    <input 
-                        type="text" 
-                        value={searchTerm} 
-                        onChange={(e) => setSearchTerm(e.target.value)} 
-                        placeholder="Pesquisar arquivos e pastas..." 
-                        className="w-full pl-8 pr-8 py-1.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-shadow"
-                    />
-                    {searchTerm && (
-                        <button onClick={clearSearch} className="absolute inset-y-0 right-0 pr-2 flex items-center text-gray-400 hover:text-red-500">
-                            <Icon name="x" size={14} />
-                        </button>
-                    )}
-                </div>
-
                 {/* Breadcrumbs e Filtros */}
-                <div className="flex items-center gap-1 text-sm overflow-x-auto whitespace-nowrap pb-1 custom-scroll mt-2">
-                    {activeFilters.length > 0 ? (
+                <div className="flex items-center gap-1 text-sm overflow-x-auto whitespace-nowrap pb-1 custom-scroll">
+                    {searchTerm ? (
+                        <div className="flex items-center justify-between w-full">
+                            <span className="text-sm font-bold text-blue-600 flex items-center gap-1"><Icon name="search" size={14}/> Busca: "{searchTerm}"</span>
+                            <button onClick={clearSearch} className="text-xs text-gray-500 hover:text-red-500 flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded hover:bg-red-50 transition-colors"><Icon name="x" size={12}/> Limpar</button>
+                        </div>
+                    ) : activeFilters.length > 0 ? (
                         <div className="flex items-center justify-between w-full">
                             <span className="text-sm font-bold text-purple-600 flex items-center gap-1"><Icon name="filter" size={14}/> Filtro Ativo ({activeFilters.length})</span>
                             <button onClick={clearFilters} className="text-xs text-gray-500 hover:text-red-500 flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded hover:bg-red-50 transition-colors"><Icon name="x" size={12}/> Limpar</button>
                         </div>
                     ) : (
                         <>
-                            <button onClick={() => setCurrentFolderId(null)} className={`flex items-center hover:bg-blue-100 px-1.5 py-0.5 rounded transition-colors ${!currentFolderId && !searchTerm ? 'font-bold text-blue-700' : 'text-gray-500'}`}>
+                            <button onClick={() => setCurrentFolderId(null)} className={`flex items-center hover:bg-blue-100 px-1.5 py-0.5 rounded transition-colors ${!currentFolderId ? 'font-bold text-blue-700' : 'text-gray-500'}`}>
                                 <Icon name="home" size={14} className="mr-1"/> Início
                             </button>
-                            {!searchTerm && breadcrumbs.map((folder, i) => (
+                            {breadcrumbs.map((folder, i) => (
                                 <React.Fragment key={folder.id}>
                                     <span className="text-gray-300">/</span>
                                     <button onClick={() => setCurrentFolderId(folder.id)} className={`hover:bg-blue-100 px-1.5 py-0.5 rounded transition-colors ${i === breadcrumbs.length - 1 ? 'font-bold text-blue-700' : 'text-gray-500'}`}>
@@ -171,22 +147,14 @@ const FileExplorer = ({
             {/* Lista de Itens */}
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
                 {!activeFilters.length && !searchTerm && currentFolderId && (
-                    <div className="mb-2">
-                        <button onClick={() => { 
-                            if (breadcrumbs.length > 0) {
-                                 const parent = breadcrumbs.length > 1 ? breadcrumbs[breadcrumbs.length - 2].id : null;
-                                 setCurrentFolderId(parent);
-                            }
-                        }} className="w-full text-left p-2 hover:bg-gray-100 rounded text-gray-500 text-sm flex items-center gap-2">
-                            <Icon name="cornerUpLeft" size={16} /> .. Voltar
-                        </button>
-                        
-                        {currentFolder?.content && typeof currentFolder.content === 'string' && currentFolder.content.trim() !== '' && (
-                            <div className="mt-1 mx-2 px-3 py-2 bg-yellow-50/50 border border-yellow-100 rounded-lg text-xs text-gray-600 shadow-sm whitespace-normal break-words">
-                                <span className="font-semibold text-yellow-700">Descrição:</span> {currentFolder.content}
-                            </div>
-                        )}
-                    </div>
+                    <button onClick={() => { 
+                        if (breadcrumbs.length > 0) {
+                             const parent = breadcrumbs.length > 1 ? breadcrumbs[breadcrumbs.length - 2].id : null;
+                             setCurrentFolderId(parent);
+                        }
+                    }} className="w-full text-left p-2 hover:bg-gray-100 rounded text-gray-500 text-sm flex items-center gap-2 mb-2">
+                        <Icon name="cornerUpLeft" size={16} /> .. Voltar
+                    </button>
                 )}
 
                 {items.map(item => (
@@ -202,56 +170,21 @@ const FileExplorer = ({
                         )}
                         
                         <div className="min-w-0">
-                            {/* 👇 NOVA PARTE: UI DE EDIÇÃO MELHORADA 👇 */}
                             {editingItemId === item.id ? (
-                                <div className="flex flex-col gap-1.5 w-full bg-white p-2 rounded-lg border border-blue-200 shadow-sm" onClick={e => e.stopPropagation()}>
-                                    <input ref={editInputRef} value={tempName} onChange={e => setTempName(e.target.value)} onKeyDown={e => { if(e.key==='Enter' && item.type !== 'folder') handleSaveRename(e, item.type); if(e.key==='Escape') setEditingItemId(null); }} className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-blue-500 outline-none" autoFocus placeholder="Nome do arquivo/pasta" />
-                                    
-                                    {item.type === 'folder' && (
-                                        <input value={tempContent} onChange={e => setTempContent(e.target.value)} onKeyDown={e => { if(e.key==='Enter') handleSaveRename(e, item.type); if(e.key==='Escape') setEditingItemId(null); }} className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:border-blue-500 outline-none bg-gray-50" placeholder="Descrição (opcional)" />
-                                    )}
-                                    
-                                    <div className="flex justify-end gap-2 mt-1">
-                                        <button onClick={() => setEditingItemId(null)} className="px-3 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 rounded-md">Cancelar</button>
-                                        <button onClick={(e) => handleSaveRename(e, item.type)} className="px-3 py-1 text-xs font-medium text-white bg-green-500 hover:bg-green-600 rounded-md flex items-center gap-1"><Icon name="check" size={12}/> Salvar</button>
-                                    </div>
+                                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                    <input ref={editInputRef} value={tempName} onChange={e => setTempName(e.target.value)} onKeyDown={e => { if(e.key==='Enter') handleSaveRename(e); if(e.key==='Escape') setEditingItemId(null); }} className="w-full text-sm border rounded px-1 py-0.5 focus:border-blue-500 outline-none" autoFocus onClick={e => e.stopPropagation()} />
+                                    <button onClick={handleSaveRename} className="text-green-600 p-1"><Icon name="check" size={14}/></button>
                                 </div>
-
                             ) : (
                                 <div>
-
-                                    
                                     <p className={`text-sm font-medium truncate ${item.id === activeDeckId ? 'text-blue-900' : 'text-gray-700'} ${item.type === 'shortcut' ? 'italic' : ''}`}>
                                         {item.name} {item.type === 'shortcut' && <span className="text-[9px] text-gray-400 font-normal not-italic ml-1">(Atalho)</span>}
                                     </p>
-                                    <div className="flex items-center gap-2 mt-0.5 min-w-0 flex-wrap">
-                                        {item.type === 'folder' ? (
-                                            <div className="flex items-center min-w-0">
-                                                <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 rounded-full shrink-0">
-                                                    {countItemsInFolder(item.id)} itens
-                                                </span>
-                                                {item.content && typeof item.content === 'string' && item.content.trim() !== '' && (
-                                                    <span 
-                                                        className="text-[10px] text-gray-400 truncate ml-1.5 max-w-[120px] md:max-w-[200px]" 
-                                                        title={item.content}
-                                                    >
-                                                        - {item.content}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        ) :
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                        {item.type === 'folder' ? <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 rounded-full">{countItemsInFolder(item.id)} itens</span> : 
                                          item.type === 'edital' ? <span className="text-[10px] bg-green-100 text-green-600 px-1.5 rounded-full">Edital</span> :
                                          item.type === 'deck' ? <><span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 rounded-full">{Math.round(((item.progress || 0) / (item.cards?.length || 1)) * 100)}%</span>{item.completions > 0 && <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1.5 rounded-full flex items-center gap-1 font-bold"><Icon name="trophy" size={8} /> {item.completions}</span>}</> :
                                          <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 rounded-full capitalize">{item.type}</span>}
-                                        {item._isDirty ? (
-                                            <span className="text-[9px] bg-blue-50 text-blue-500 px-1.5 py-0.2 border border-blue-100 rounded font-medium animate-pulse font-sans" title="Salvo localmente, pendente de envio para nuvem">Local</span>
-                                        ) : isGuest ? (
-                                            <span className="text-[9px] bg-amber-50 text-amber-600 px-1.5 py-0.2 border border-amber-200 rounded font-medium font-sans" title="Salvo apenas localmente (Modo Offline)">Local</span>
-                                        ) : user ? (
-                                            <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.2 border border-emerald-100 rounded font-semibold flex items-center gap-0.5 font-sans" title="Sincronizado na Nuvem e Localmente"><span className="w-1 h-1 bg-emerald-500 rounded-full inline-block"></span>Ambos</span>
-                                        ) : (
-                                            <span className="text-[9px] bg-amber-50 text-amber-600 px-1.5 py-0.2 border border-amber-200 rounded font-medium font-sans" title="Salvo apenas localmente (Modo Offline)">Local</span>
-                                        )}
                                     </div>
                                 </div>
                             )}
