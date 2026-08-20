@@ -230,8 +230,8 @@ Please report this to https://github.com/markedjs/marked.`,s){let n="<p>An error
                 left: 50%;
                 top: 100%;
                 transform: translateX(-50%);
-                margin-top: 4px;
-                font-size: 8px;
+                margin-top: 3px;
+                font-size: 7px;
                 font-family: sans-serif;
                 color: #4b5563;
                 white-space: nowrap;
