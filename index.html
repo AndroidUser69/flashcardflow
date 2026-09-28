@@ -58,7 +58,7 @@
         
         /* Preview do Markdown */
         
-        .markdown-preview { color: #374151; line-height: 1.6; }
+        .markdown-preview { color: #374151; line-height: 1.6; overflow-wrap: break-word; }
         
         .markdown-preview h1 { font-size: 1.8em; font-weight: 700; margin-bottom: 0.5em; color: #111827; margin-top: 0.5em; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.2em; }
         
@@ -78,7 +78,10 @@
         
         .markdown-preview code { background-color: #f3f4f6; padding: 0.2em 0.4em; border-radius: 0.25em; font-size: 0.9em; font-family: monospace; color: #dc2626; }
         
-        .markdown-preview pre { background-color: #1f2937; color: #f3f4f6; padding: 1em; border-radius: 0.5em; overflow-x: auto; margin-bottom: 1em; }
+        /* Blocos de código / caixas de alerta: quebram a linha em vez de rolar
+           para o lado (no celular o texto não "foge" da tela) */
+        
+        .markdown-preview pre { background-color: #1f2937; color: #f3f4f6; padding: 1em; border-radius: 0.5em; overflow-x: auto; margin-bottom: 1em; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; max-width: 100%; }
         
         .markdown-preview pre code { background-color: transparent; color: inherit; padding: 0; }
         
@@ -87,6 +90,12 @@
         .markdown-preview hr { margin: 2em 0; border-top: 1px solid #e5e7eb; }
         
         .markdown-preview table { width: 100%; border-collapse: collapse; margin-bottom: 1em; }
+        
+        /* Tabela larga rola DENTRO dela mesma (não empurra a nota para o lado) */
+        
+        .tabela-rolavel { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 1em; }
+        
+        .tabela-rolavel > table { margin-bottom: 0; min-width: max-content; }
         
         .markdown-preview th, .markdown-preview td { border: 1px solid #e5e7eb; padding: 0.5em; text-align: left; }
         
@@ -128,7 +137,7 @@
         
         .mode-highlight mark[data-highlight-id]:hover { opacity: 0.8; box-shadow: 0 0 0 1px rgba(0,0,0,0.2); }
     </style>
-    <script type="module" crossorigin src="/flashcardflow/assets/index-CZew8dJ-.js"></script>
+    <script type="module" crossorigin src="/flashcardflow/assets/index-DDqsSmw_.js"></script>
     <link rel="stylesheet" crossorigin href="/flashcardflow/assets/index-DfTbbw_F.css">
   </head>
   <body>
