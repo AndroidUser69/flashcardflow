@@ -82,19 +82,32 @@
         
         .markdown-preview pre code { background-color: transparent; color: inherit; padding: 0; }
         
+        /* Imagem também não pode "empurrar" a nota para o lado */
+        
+        .markdown-preview img { max-width: 100%; height: auto; }
+        
         .markdown-preview a { color: #2563eb; text-decoration: underline; }
         
         .markdown-preview hr { margin: 2em 0; border-top: 1px solid #e5e7eb; }
         
-        .markdown-preview table { width: 100%; border-collapse: collapse; margin-bottom: 1em; }
+        /* Tabela se ADAPTA à largura da nota: o texto das células quebra linha
+           (inclusive palavras longas/URLs), então não precisa rolar para o lado.
+           O invólucro .tabela-rolavel fica apenas como rede de segurança para
+           casos extremos (muitas colunas), evitando que a NOTA inteira role. */
         
-        /* Tabela larga rola DENTRO dela mesma (não empurra a nota para o lado) */
+        .markdown-preview table { width: 100%; table-layout: auto; border-collapse: collapse; margin-bottom: 1em; }
         
         .tabela-rolavel { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 1em; }
         
-        .tabela-rolavel > table { margin-bottom: 0; min-width: max-content; }
+        .tabela-rolavel > table { margin-bottom: 0; }
         
-        .markdown-preview th, .markdown-preview td { border: 1px solid #e5e7eb; padding: 0.5em; text-align: left; }
+        .markdown-preview th, .markdown-preview td { border: 1px solid #e5e7eb; padding: 0.5em; text-align: left; overflow-wrap: anywhere; word-break: break-word; }
+        
+        /* Tela estreita: células mais enxutas => mais colunas cabem sem rolar */
+        
+        @media (max-width: 640px) {
+            .markdown-preview th, .markdown-preview td { padding: 0.35em 0.45em; font-size: 0.95em; }
+        }
         
         .markdown-preview th { background-color: #f9fafb; font-weight: 600; }
         
@@ -134,7 +147,7 @@
         
         .mode-highlight mark[data-highlight-id]:hover { opacity: 0.8; box-shadow: 0 0 0 1px rgba(0,0,0,0.2); }
     </style>
-    <script type="module" crossorigin src="/flashcardflow/assets/index-fTAo8wBJ.js"></script>
+    <script type="module" crossorigin src="/flashcardflow/assets/index-D3kc3WS9.js"></script>
     <link rel="stylesheet" crossorigin href="/flashcardflow/assets/index-DfTbbw_F.css">
   </head>
   <body>
