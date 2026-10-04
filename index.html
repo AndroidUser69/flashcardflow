@@ -113,6 +113,32 @@
         
         .markdown-preview strong { font-weight: 700; color: #111827; }
         
+        /* Modo VISUAL do editor (estilo Word): a "folha" onde se digita o texto
+           já formatado. Usa as mesmas classes .markdown-preview, então o que se
+           vê ao editar é igual ao que se vê ao ler. */
+        
+        .rich-editor { outline: none; word-break: break-word; }
+        
+        .rich-editor:focus { outline: none; }
+        
+        .rich-editor:empty::before { content: attr(data-placeholder); color: #9ca3af; pointer-events: none; }
+        
+        /* Fórmulas são "átomos": não se digita dentro do KaTeX */
+        
+        .rich-editor [contenteditable="false"] { user-select: none; -webkit-user-select: none; cursor: default; }
+        
+        /* Células da tabela: sempre clicáveis e com largura mínima (como no Word) */
+        
+        .rich-editor table { cursor: text; }
+        
+        .rich-editor th, .rich-editor td { min-width: 56px; min-height: 1.4em; }
+        
+        .rich-editor th:empty::after, .rich-editor td:empty::after { content: "\200b"; }
+        
+        /* Bloco de código: na edição é melhor quebrar linha do que rolar de lado */
+        
+        .rich-editor pre { white-space: pre-wrap; overflow-x: visible; }
+        
         /* LaTeX (KaTeX) — fórmulas dentro do Markdown */
         
         .markdown-preview .latex-math { padding: 0 1px; border-radius: 3px; }
@@ -147,7 +173,7 @@
         
         .mode-highlight mark[data-highlight-id]:hover { opacity: 0.8; box-shadow: 0 0 0 1px rgba(0,0,0,0.2); }
     </style>
-    <script type="module" crossorigin src="/flashcardflow/assets/index-BpKDmXkO.js"></script>
+    <script type="module" crossorigin src="/flashcardflow/assets/index-AsePqeUz.js"></script>
     <link rel="stylesheet" crossorigin href="/flashcardflow/assets/index-DfTbbw_F.css">
   </head>
   <body>
