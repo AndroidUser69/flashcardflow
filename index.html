@@ -68,6 +68,22 @@
         
         .toast-enter { animation: slideDown 0.3s ease-out forwards; }
         
+        /* Rótulo de menu que NÃO CABE: em vez de esticar o menu, o nome desliza
+           (marquee) para a esquerda revelando o resto e volta ao início.
+           `--slide` é a sobra em pixels, medida pelo JS de quem usa a classe. */
+        
+        @keyframes menuLabelSlide {
+            0%, 12% { transform: translateX(0); }
+            45%, 58% { transform: translateX(var(--slide, 0px)); }
+            92%, 100% { transform: translateX(0); }
+        }
+        
+        .menu-label-slide { animation: menuLabelSlide 6.5s ease-in-out infinite; }
+        
+        @media (prefers-reduced-motion: reduce) {
+            .menu-label-slide { animation: none; }
+        }
+        
         /* Helpers */
         
         .select-none-important { user-select: none !important; -webkit-user-select: none !important; }
@@ -416,7 +432,7 @@
         
         html.dark .katex { color: inherit; }
     </style>
-    <script type="module" crossorigin src="/flashcardflow/assets/index-paBbXxHA.js"></script>
+    <script type="module" crossorigin src="/flashcardflow/assets/index-BN1Whs3a.js"></script>
     <link rel="stylesheet" crossorigin href="/flashcardflow/assets/index-DfTbbw_F.css">
   </head>
   <body>
