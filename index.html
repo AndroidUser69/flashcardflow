@@ -6,6 +6,26 @@
     <title>Flashcard Flow</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- TEMA NOTURNO: `darkMode: 'class'` faz as classes `dark:` do projeto
+         valerem quando a tag <html> tem a classe `.dark` (ver src/utils/theme.js). -->
+    <script>
+      tailwind.config = { darkMode: 'class' };
+    </script>
+    <!-- Aplica o tema ANTES de pintar a tela (evita o "flash" claro).
+         Só existem dois temas: Claro (padrão) ou Noturno. O modo "Automático"
+         (seguir o sistema) foi retirado — valores antigos caem no Claro. -->
+    <script>
+      (function () {
+        try {
+          var modo = localStorage.getItem('ff_theme');
+          var escuro = modo === 'dark';
+          var r = document.documentElement;
+          r.classList.toggle('dark', escuro);
+          r.setAttribute('data-theme', escuro ? 'dark' : 'light');
+          r.style.colorScheme = escuro ? 'dark' : 'light';
+        } catch (e) { /* segue no claro */ }
+      })();
+    </script>
 
     <script src="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.js"></script>
     <script src="https://unpkg.com/pdfjs-dist@3.4.120/web/pdf_viewer.js"></script>
@@ -172,8 +192,231 @@
         .mode-highlight mark[data-highlight-id] { cursor: pointer; }
         
         .mode-highlight mark[data-highlight-id]:hover { opacity: 0.8; box-shadow: 0 0 0 1px rgba(0,0,0,0.2); }
+        
+        /* ====================================================================
+           PONTE DO TEMA NOTURNO (html.dark)
+           O Tailwind é carregado via CDN, então as classes `dark:` do projeto
+           funcionam normalmente. Este bloco cobre o "resto" do app (telas já
+           existentes que ainda não têm classes dark:), remapeando as
+           utilidades claras mais usadas para uma paleta escura confortável.
+           Usar `html.dark .classe` garante especificidade maior que a classe
+           gerada pelo Tailwind (que é injetada depois deste <style>).
+           ==================================================================== */
+        
+        html.dark body { background-color: #0f1720; color: #e8edf5; }
+        
+        /* Superfícies */
+        
+        html.dark .bg-white { background-color: #1b2536; }
+        
+        html.dark .bg-white\/90 { background-color: rgba(27, 37, 54, 0.93); }
+        
+        html.dark .bg-white\/80 { background-color: rgba(27, 37, 54, 0.82); }
+        
+        html.dark .bg-white\/25 { background-color: rgba(255, 255, 255, 0.22); }
+        
+        html.dark .bg-white\/20 { background-color: rgba(255, 255, 255, 0.18); }
+        
+        html.dark .bg-white\/15 { background-color: rgba(255, 255, 255, 0.14); }
+        
+        html.dark .bg-gray-50, html.dark .bg-gray-50\/70 { background-color: #16202e; }
+        
+        html.dark .bg-gray-50\/50 { background-color: rgba(22, 32, 46, 0.55); }
+        
+        html.dark .bg-gray-100 { background-color: #223044; }
+        
+        html.dark .bg-gray-100\/60 { background-color: rgba(34, 48, 68, 0.6); }
+        
+        html.dark .bg-gray-200 { background-color: #2c3a4f; }
+        
+        html.dark .bg-gray-300 { background-color: #3b4b63; }
+        
+        html.dark .bg-black\/50 { background-color: rgba(2, 6, 12, 0.65); }
+        
+        html.dark .bg-black\/45 { background-color: rgba(2, 6, 12, 0.55); }
+        
+        /* Textos */
+        
+        html.dark .text-gray-900, html.dark .text-gray-800 { color: #f1f5f9; }
+        
+        html.dark .text-gray-700 { color: #e3e9f2; }
+        
+        html.dark .text-gray-600 { color: #cbd5e1; }
+        
+        html.dark .text-gray-500 { color: #a7b3c6; }
+        
+        html.dark .text-gray-400 { color: #8e9cb0; }
+        
+        html.dark .text-gray-300 { color: #6f7d92; }
+        
+        html.dark .text-black { color: #e8edf5; }
+        
+        /* Bordas e divisores */
+        
+        html.dark .border-gray-50 { border-color: rgba(255, 255, 255, 0.06); }
+        
+        html.dark .border-gray-100 { border-color: rgba(255, 255, 255, 0.09); }
+        
+        html.dark .border-gray-200 { border-color: rgba(255, 255, 255, 0.13); }
+        
+        html.dark .border-gray-300 { border-color: rgba(255, 255, 255, 0.18); }
+        
+        html.dark .divide-gray-50 > :not([hidden]) ~ :not([hidden]) { border-color: rgba(255, 255, 255, 0.07); }
+        
+        html.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: rgba(255, 255, 255, 0.1); }
+        
+        html.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: rgba(255, 255, 255, 0.13); }
+        
+        /* Hovers mais usados */
+        
+        html.dark .hover\:bg-gray-50:hover { background-color: #223044; }
+        
+        html.dark .hover\:bg-gray-100:hover { background-color: #223044; }
+        
+        html.dark .hover\:bg-gray-200:hover { background-color: #2c3a4f; }
+        
+        html.dark .hover\:bg-white:hover { background-color: #223044; }
+        
+        html.dark .hover\:text-gray-600:hover { color: #e3e9f2; }
+        
+        html.dark .hover\:text-gray-700:hover { color: #f1f5f9; }
+        
+        html.dark .hover\:text-gray-800:hover { color: #f8fafc; }
+        
+        html.dark .hover\:border-gray-300:hover { border-color: rgba(255, 255, 255, 0.25); }
+        
+        html.dark .hover\:bg-blue-50\/50:hover, html.dark .hover\:bg-blue-50\/40:hover, html.dark .hover\:bg-blue-50:hover { background-color: rgba(59, 130, 246, 0.14); }
+        
+        /* Anéis de destaque (tile da disciplina aberta): o "ring-offset" claro
+           criaria um halo branco em volta do cartão no tema escuro. */
+        
+        html.dark .ring-offset-gray-50, html.dark .ring-offset-gray-100 { --tw-ring-offset-color: #0f1720; }
+        
+        html.dark .ring-gray-100 { --tw-ring-color: rgba(255, 255, 255, 0.08); }
+        
+        html.dark .ring-gray-200 { --tw-ring-color: rgba(255, 255, 255, 0.12); }
+        
+        /* Formulários */
+        
+        html.dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+        html.dark textarea, html.dark select { color: #e8edf5; }
+        
+        html.dark input::placeholder, html.dark textarea::placeholder { color: #7b8899; }
+        
+        html.dark select option { background-color: #1b2536; color: #e8edf5; }
+        
+        /* Barra de rolagem */
+        
+        html.dark .custom-scroll::-webkit-scrollbar-thumb,
+        html.dark .custom-scroll-header::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.16); }
+        
+        /* Rodapés/barras fixas com sombra clara */
+        
+        /* ------------------------------------------------------------------
+           Selos/pílulas coloridas (badges) e materiais de apoio
+           Os tons -50/-100 claros viram uma "película" translúcida da cor,
+           e os textos -600/-700/-800 ficam mais claros para dar contraste.
+           ------------------------------------------------------------------ */
+        
+        html.dark .bg-red-50, html.dark .bg-red-100 { background-color: rgba(239, 68, 68, 0.18); }
+        
+        html.dark .bg-orange-50, html.dark .bg-orange-100 { background-color: rgba(249, 115, 22, 0.18); }
+        
+        html.dark .bg-amber-50, html.dark .bg-amber-100 { background-color: rgba(245, 158, 11, 0.18); }
+        
+        html.dark .bg-yellow-50, html.dark .bg-yellow-100 { background-color: rgba(234, 179, 8, 0.18); }
+        
+        html.dark .bg-green-50, html.dark .bg-green-100 { background-color: rgba(34, 197, 94, 0.18); }
+        
+        html.dark .bg-emerald-50, html.dark .bg-emerald-100 { background-color: rgba(16, 185, 129, 0.18); }
+        
+        html.dark .bg-teal-50, html.dark .bg-teal-100 { background-color: rgba(20, 184, 166, 0.18); }
+        
+        html.dark .bg-cyan-50, html.dark .bg-cyan-100 { background-color: rgba(6, 182, 212, 0.18); }
+        
+        html.dark .bg-sky-50, html.dark .bg-sky-100 { background-color: rgba(14, 165, 233, 0.18); }
+        
+        html.dark .bg-blue-50, html.dark .bg-blue-100 { background-color: rgba(59, 130, 246, 0.18); }
+        
+        html.dark .bg-indigo-50, html.dark .bg-indigo-100 { background-color: rgba(99, 102, 241, 0.18); }
+        
+        html.dark .bg-violet-50, html.dark .bg-violet-100 { background-color: rgba(139, 92, 246, 0.18); }
+        
+        html.dark .bg-purple-50, html.dark .bg-purple-100 { background-color: rgba(168, 85, 247, 0.18); }
+        
+        html.dark .bg-fuchsia-50, html.dark .bg-fuchsia-100 { background-color: rgba(217, 70, 239, 0.18); }
+        
+        html.dark .bg-pink-50, html.dark .bg-pink-100 { background-color: rgba(236, 72, 153, 0.18); }
+        
+        html.dark .bg-rose-50, html.dark .bg-rose-100 { background-color: rgba(244, 63, 94, 0.18); }
+        
+        html.dark .text-red-600, html.dark .text-red-700, html.dark .text-red-800 { color: #fca5a5; }
+        
+        html.dark .text-orange-700, html.dark .text-orange-800 { color: #fdba74; }
+        
+        html.dark .text-amber-700, html.dark .text-amber-800 { color: #fcd34d; }
+        
+        html.dark .text-yellow-700, html.dark .text-yellow-800 { color: #fde047; }
+        
+        html.dark .text-green-700, html.dark .text-green-800 { color: #86efac; }
+        
+        html.dark .text-emerald-700 { color: #6ee7b7; }
+        
+        html.dark .text-teal-700 { color: #5eead4; }
+        
+        html.dark .text-cyan-700 { color: #67e8f9; }
+        
+        html.dark .text-sky-700 { color: #7dd3fc; }
+        
+        html.dark .text-blue-600, html.dark .text-blue-700 { color: #93c5fd; }
+        
+        html.dark .text-indigo-600, html.dark .text-indigo-700 { color: #a5b4fc; }
+        
+        html.dark .text-violet-600, html.dark .text-violet-700 { color: #c4b5fd; }
+        
+        html.dark .text-purple-600, html.dark .text-purple-700 { color: #d8b4fe; }
+        
+        html.dark .text-fuchsia-700 { color: #f0abfc; }
+        
+        html.dark .text-pink-700, html.dark .text-pink-600 { color: #f9a8d4; }
+        
+        html.dark .text-rose-700 { color: #fda4af; }
+        
+        /* ------------------------------------------------------------------
+           Leitura de notas/markdown no escuro (as cores são fixas em hex no
+           CSS acima, então precisam ser reescritas uma a uma)
+           ------------------------------------------------------------------ */
+        
+        html.dark .markdown-preview { color: #d7dee8; }
+        
+        html.dark .markdown-preview h1 { color: #f8fafc; border-bottom-color: rgba(255, 255, 255, 0.14); }
+        
+        html.dark .markdown-preview h2, html.dark .markdown-preview h3 { color: #f1f5f9; }
+        
+        html.dark .markdown-preview strong { color: #f8fafc; }
+        
+        html.dark .markdown-preview a { color: #7dd3fc; }
+        
+        html.dark .markdown-preview blockquote { border-left-color: rgba(255, 255, 255, 0.16); color: #a7b3c6; background-color: rgba(255, 255, 255, 0.04); }
+        
+        html.dark .markdown-preview code { background-color: rgba(255, 255, 255, 0.1); color: #fca5a5; }
+        
+        html.dark .markdown-preview th { background-color: rgba(255, 255, 255, 0.05); }
+        
+        html.dark .markdown-preview th, html.dark .markdown-preview td { border-color: rgba(255, 255, 255, 0.13); }
+        
+        html.dark .markdown-preview hr { border-top-color: rgba(255, 255, 255, 0.14); }
+        
+        html.dark .rich-editor:empty::before { color: #7b8899; }
+        
+        /* Realces: o texto do realce herda a cor clara do tema. NÃO forçamos cor
+           aqui, porque o fundo do realce é uma camada translúcida da cor
+           escolhida pelo usuário (amarelo, verde…) — texto claro sobre ela
+           continua legível e o realce não "queima" a vista. */
+        
+        html.dark .katex { color: inherit; }
     </style>
-    <script type="module" crossorigin src="/flashcardflow/assets/index-fRobQgOw.js"></script>
+    <script type="module" crossorigin src="/flashcardflow/assets/index-paBbXxHA.js"></script>
     <link rel="stylesheet" crossorigin href="/flashcardflow/assets/index-DfTbbw_F.css">
   </head>
   <body>
